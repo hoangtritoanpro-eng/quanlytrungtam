@@ -6,7 +6,7 @@ export async function api(action, data = {}, userEmail = '') {
     method: 'POST',
     redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, email: userEmail, ...data }),
+    body: JSON.stringify({ action, authEmail: userEmail, email: userEmail, ...data }),
   });
   const json = await response.json();
   if (!json.ok) throw new Error(json.error || 'Lỗi không xác định');
