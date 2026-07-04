@@ -4,7 +4,6 @@ import { useToast } from '../context/ToastContext';
 import { api } from '../api';
 import Modal from '../components/Modal';
 
-// Đã thêm schoolClass vào object khởi tạo
 const EMPTY = { fullName: '', schoolClass: '', parentName: '', parentPhone: '', parentEmail: '', note: '', status: 'ACTIVE' };
 
 export default function Students() {
@@ -19,15 +18,33 @@ export default function Students() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api('getStudents', {}, user.email).then(d => setStudents(d || [])).catch(e => toast(e.message, 'error')).finally(() => setLoading(false));
+    api('getStudents', {}, user.email)
+      .then(d => setStudents(d || []))
+      .catch(e => toast(e.message, 'error'))
+      .finally(() => setLoading(false));
   }, []);
 
   function openAdd() { setEditing(null); setForm(EMPTY); setShowModal(true); }
   function openEdit(s) {
     setEditing(s);
-    // Bổ sung lấy giá trị SchoolClass từ data trả về
     setForm({ fullName: s.FullName, schoolClass: s.SchoolClass || '', parentName: s.ParentName, parentPhone: s.ParentPhone, parentEmail: s.ParentEmail, note: s.Note, status: s.Status });
     setShowModal(true);
+  }
+
+  // HÀM MỚI: Xử lý xóa học sinh
+  async function handleDelete(studentId, fullName) {
+    if (!window.confirm(`Thầy có chắc chắn muốn xóa học sinh "${fullName}" không?\nThao tác này sẽ xóa vĩnh viễn dữ liệu khỏi hệ thống.`)) {
+      return;
+    }
+    
+    try {
+      await api('deleteStudent', { studentId }, user.email);
+      toast('Đã xóa học sinh thành công');
+      // Cập nhật lại giao diện bằng cách lọc bỏ học sinh vừa xóa
+      setStudents(prev => prev.filter(s => s.StudentID !== studentId));
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   }
 
   async function save() {
@@ -37,12 +54,10 @@ export default function Students() {
       if (editing) {
         await api('editStudent', { studentId: editing.StudentID, ...form }, user.email);
         toast('Đã cập nhật học sinh');
-        // Bổ sung cập nhật state SchoolClass
         setStudents(prev => prev.map(s => s.StudentID === editing.StudentID ? { ...s, FullName: form.fullName, SchoolClass: form.schoolClass, ParentName: form.parentName, ParentPhone: form.parentPhone, ParentEmail: form.parentEmail, Note: form.note, Status: form.status } : s));
       } else {
         const newS = await api('addStudent', form, user.email);
         toast('Đã thêm học sinh mới');
-        // Backend trả về dạng {studentId: 'STU...'} nên cần gộp chung form data vào để hiển thị ngay
         setStudents(prev => [...prev, { StudentID: newS.studentId, FullName: form.fullName, SchoolClass: form.schoolClass, ParentName: form.parentName, ParentPhone: form.parentPhone, ParentEmail: form.parentEmail, Note: form.note, Status: form.status }]);
       }
       setShowModal(false);
@@ -103,6 +118,14 @@ export default function Students() {
                     </td>
                     <td className="actions">
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(s)}>✏️ Sửa</button>
+                      {/* NÚT XÓA MỚI ĐƯỢC THÊM VÀO ĐÂY */}
+                      <button 
+                        className="btn btn-sm" 
+                        style={{ marginLeft: '6px', backgroundColor: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5' }} 
+                        onClick={() => handleDelete(s.StudentID, s.FullName)}
+                      >
+                        🗑️ Xóa
+                      </button>
                     </td>
                   </tr>
                 ))}
