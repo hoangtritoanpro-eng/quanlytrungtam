@@ -4,7 +4,8 @@ import { useToast } from '../context/ToastContext';
 import { api } from '../api';
 import Modal from '../components/Modal';
 
-const EMPTY = { fullName: '', parentName: '', parentPhone: '', parentEmail: '', note: '', status: 'ACTIVE' };
+// Đã thêm schoolClass vào object khởi tạo
+const EMPTY = { fullName: '', schoolClass: '', parentName: '', parentPhone: '', parentEmail: '', note: '', status: 'ACTIVE' };
 
 export default function Students() {
   const { user } = useAuth();
@@ -24,7 +25,8 @@ export default function Students() {
   function openAdd() { setEditing(null); setForm(EMPTY); setShowModal(true); }
   function openEdit(s) {
     setEditing(s);
-    setForm({ fullName: s.FullName, parentName: s.ParentName, parentPhone: s.ParentPhone, parentEmail: s.ParentEmail, note: s.Note, status: s.Status });
+    // Bổ sung lấy giá trị SchoolClass từ data trả về
+    setForm({ fullName: s.FullName, schoolClass: s.SchoolClass || '', parentName: s.ParentName, parentPhone: s.ParentPhone, parentEmail: s.ParentEmail, note: s.Note, status: s.Status });
     setShowModal(true);
   }
 
@@ -35,11 +37,13 @@ export default function Students() {
       if (editing) {
         await api('editStudent', { studentId: editing.StudentID, ...form }, user.email);
         toast('Đã cập nhật học sinh');
-        setStudents(prev => prev.map(s => s.StudentID === editing.StudentID ? { ...s, FullName: form.fullName, ParentName: form.parentName, ParentPhone: form.parentPhone, ParentEmail: form.parentEmail, Note: form.note, Status: form.status } : s));
+        // Bổ sung cập nhật state SchoolClass
+        setStudents(prev => prev.map(s => s.StudentID === editing.StudentID ? { ...s, FullName: form.fullName, SchoolClass: form.schoolClass, ParentName: form.parentName, ParentPhone: form.parentPhone, ParentEmail: form.parentEmail, Note: form.note, Status: form.status } : s));
       } else {
         const newS = await api('addStudent', form, user.email);
         toast('Đã thêm học sinh mới');
-        setStudents(prev => [...prev, newS]);
+        // Backend trả về dạng {studentId: 'STU...'} nên cần gộp chung form data vào để hiển thị ngay
+        setStudents(prev => [...prev, { StudentID: newS.studentId, FullName: form.fullName, SchoolClass: form.schoolClass, ParentName: form.parentName, ParentPhone: form.parentPhone, ParentEmail: form.parentEmail, Note: form.note, Status: form.status }]);
       }
       setShowModal(false);
     } catch (e) { toast(e.message, 'error'); }
@@ -48,6 +52,7 @@ export default function Students() {
 
   const filtered = students.filter(s =>
     s.FullName?.toLowerCase().includes(q.toLowerCase()) ||
+    s.SchoolClass?.toLowerCase().includes(q.toLowerCase()) ||
     s.ParentPhone?.includes(q) ||
     s.StudentID?.includes(q)
   );
@@ -64,7 +69,7 @@ export default function Students() {
       </div>
 
       <div className="filter-bar">
-        <input className="search-box" placeholder="Tìm theo tên, SĐT, mã..." value={q} onChange={e => setQ(e.target.value)} />
+        <input className="search-box" placeholder="Tìm theo tên, lớp, SĐT, mã..." value={q} onChange={e => setQ(e.target.value)} />
         <button className="btn btn-primary" onClick={openAdd}>+ Thêm học sinh</button>
       </div>
 
@@ -80,12 +85,13 @@ export default function Students() {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Mã</th><th>Họ tên</th><th>Phụ huynh</th><th>SĐT</th><th>Trạng thái</th><th>Link PH</th><th>Thao tác</th></tr></thead>
+              <thead><tr><th>Mã</th><th>Họ tên</th><th>Lớp</th><th>Phụ huynh</th><th>SĐT</th><th>Trạng thái</th><th>Link PH</th><th>Thao tác</th></tr></thead>
               <tbody>
                 {filtered.map(s => (
                   <tr key={s.StudentID}>
                     <td><span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{s.StudentID}</span></td>
                     <td><strong>{s.FullName}</strong>{s.Note && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{s.Note}</div>}</td>
+                    <td><span className="badge" style={{backgroundColor: 'var(--bg-secondary)', color: 'var(--text-main)'}}>{s.SchoolClass || '—'}</span></td>
                     <td>{s.ParentName || '—'}</td>
                     <td>{s.ParentPhone || '—'}</td>
                     <td><span className={`badge ${s.Status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}`}>{s.Status === 'ACTIVE' ? 'Đang học' : 'Nghỉ'}</span></td>
@@ -115,10 +121,17 @@ export default function Students() {
           <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Đang lưu...' : 'Lưu'}</button>
         </>}
       >
-        <div className="form-group">
-          <label className="form-label">Họ tên học sinh *</label>
-          <input className="form-control" value={form.fullName} onChange={e => setForm(f => ({...f, fullName: e.target.value}))} placeholder="Nguyễn Văn A" autoFocus />
+        <div className="form-row">
+          <div className="form-group" style={{ flex: 2 }}>
+            <label className="form-label">Họ tên học sinh *</label>
+            <input className="form-control" value={form.fullName} onChange={e => setForm(f => ({...f, fullName: e.target.value}))} placeholder="Nguyễn Văn A" autoFocus />
+          </div>
+          <div className="form-group" style={{ flex: 1 }}>
+            <label className="form-label">Lớp</label>
+            <input className="form-control" value={form.schoolClass} onChange={e => setForm(f => ({...f, schoolClass: e.target.value}))} placeholder="VD: 8/5, 12A1" />
+          </div>
         </div>
+        
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Tên phụ huynh</label>
