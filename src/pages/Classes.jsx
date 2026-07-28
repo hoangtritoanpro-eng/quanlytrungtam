@@ -104,6 +104,20 @@ export default function Classes() {
     finally { setSaving(false); }
   }
 
+  // === HÀM XỬ LÝ XÓA LỚP ===
+  async function handleDeleteClass(cls, e) {
+    e.stopPropagation(); // Ngăn việc click nút xóa làm mở hộp thoại chi tiết
+    if (!confirm(`Bạn có chắc chắn muốn xóa lớp "${cls.ClassName}" không?\nLưu ý: Hành động này không thể hoàn tác!`)) return;
+
+    try {
+      await api('deleteClass', { classId: cls.ClassID }, user.email);
+      toast('Đã xóa lớp học thành công');
+      loadAll(); // Tải lại danh sách sau khi xóa
+    } catch (error) { 
+      toast(error.message || 'Có lỗi xảy ra khi xóa lớp', 'error'); 
+    }
+  }
+
   async function enrollStudent() {
     if (!enrollStudentId) { toast('Chọn học sinh cần thêm', 'warning'); return; }
     setEnrolling(true);
@@ -196,11 +210,15 @@ export default function Classes() {
                 </div>
                 <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>📅 {cls.StartDate ? fmtDate(cls.StartDate) : 'Chưa rõ ngày'}</div>
                 <div style={{ color: 'var(--primary)', fontWeight: 700 }}>💵 {fmtCurrency(cls.FeePerSession)}/buổi</div>
+                
+                {/* === CẬP NHẬT GIAO DIỆN NÚT === */}
                 {isAdmin && (
-                  <div style={{ marginTop: 10 }}>
+                  <div style={{ marginTop: 10, display: 'flex', gap: '8px' }}>
                     <button className="btn btn-secondary btn-sm" onClick={e => openEdit(cls, e)}>✏️ Sửa</button>
+                    <button className="btn btn-danger btn-sm" onClick={e => handleDeleteClass(cls, e)}>🗑️ Xóa</button>
                   </div>
                 )}
+                
               </div>
             </div>
           ))}
