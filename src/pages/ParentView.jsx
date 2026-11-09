@@ -59,6 +59,26 @@ export default function ParentView() {
           {student?.Note && (
             <div style={{ marginTop: '0.75rem', opacity: 0.8, fontSize: '0.85rem' }}>📝 {student.Note}</div>
           )}
+          <div style={{ marginTop: '1rem' }}>
+            <a
+              href="/lich-hoc"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(255,255,255,0.2)',
+                color: '#fff',
+                padding: '7px 14px',
+                borderRadius: '10px',
+                textDecoration: 'none',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                border: '1px solid rgba(255,255,255,0.35)'
+              }}
+            >
+              📅 Xem Thời khóa biểu Trung tâm
+            </a>
+          </div>
         </div>
 
         {classes.length === 0 && (

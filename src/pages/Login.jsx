@@ -69,7 +69,17 @@ export default function Login() {
             {loading ? <><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Đang đăng nhập...</> : '🔐 Đăng nhập'}
           </button>
         </form>
-        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '18px' }}>
+        <div style={{ marginTop: '12px', textAlign: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
+            onClick={() => navigate('/lich-hoc')}
+          >
+            📅 Xem Thời khóa biểu / Lịch học
+          </button>
+        </div>
+        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '14px' }}>
           Liên hệ quản trị viên nếu quên PIN
         </p>
       </div>

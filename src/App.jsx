@@ -11,6 +11,7 @@ import Grades from './pages/Grades';
 import Tuition from './pages/Tuition';
 import Users from './pages/Users';
 import ParentView from './pages/ParentView';
+import Schedule from './pages/Schedule';
 
 function Require({ children, roles }) {
   const { user } = useAuth();
@@ -24,9 +25,11 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/lich-hoc" element={<Schedule isPublicPage={true} />} />
       <Route path="/parent/:studentId" element={<ParentView />} />
       <Route element={<Layout />}>
         <Route path="/dashboard" element={<Require roles={['ADMIN']}><Dashboard /></Require>} />
+        <Route path="/schedule" element={<Require><Schedule /></Require>} />
         <Route path="/classes" element={<Require><Classes /></Require>} />
         <Route path="/students" element={<Require roles={['ADMIN']}><Students /></Require>} />
         <Route path="/attendance" element={<Require><Attendance /></Require>} />

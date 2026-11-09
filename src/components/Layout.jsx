@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 const NAV = {
   ADMIN:   [
     { icon: '📊', label: 'Dashboard',    path: '/dashboard' },
+    { icon: '📅', label: 'Lịch học',     path: '/schedule' },
     { icon: '🏫', label: 'Lớp học',      path: '/classes' },
     { icon: '👤', label: 'Học sinh',     path: '/students' },
     { icon: '✅', label: 'Điểm danh',    path: '/attendance' },
@@ -13,12 +14,14 @@ const NAV = {
     { icon: '👥', label: 'Người dùng',   path: '/users' },
   ],
   TEACHER: [
+    { icon: '📅', label: 'Lịch học',     path: '/schedule' },
     { icon: '🏫', label: 'Lớp của tôi',  path: '/classes' },
     { icon: '✅', label: 'Điểm danh',    path: '/attendance' },
     { icon: '📝', label: 'Điểm số',      path: '/grades' },
     { icon: '💰', label: 'Học phí',      path: '/tuition' },
   ],
   TA:      [
+    { icon: '📅', label: 'Lịch học',     path: '/schedule' },
     { icon: '🏫', label: 'Lớp của tôi',  path: '/classes' },
     { icon: '✅', label: 'Điểm danh',    path: '/attendance' },
   ],

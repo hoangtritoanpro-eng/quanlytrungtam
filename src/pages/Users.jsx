@@ -44,6 +44,30 @@ export default function Users() {
     setModal(true);
   };
 
+  const handleDelete = async (u) => {
+    if (u.Email?.toLowerCase() === user.email?.toLowerCase()) {
+      toast('Bạn không thể tự xóa tài khoản đang đăng nhập', 'warning');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Bạn có chắc chắn muốn xóa tài khoản "${u.Name}" (${u.Email}) không?\nThao tác này sẽ xóa vĩnh viễn dữ liệu tài khoản khỏi hệ thống.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await api('deleteUser', { targetEmail: u.Email }, user.email);
+      toast('Đã xóa tài khoản thành công', 'success');
+      setUsers(prev => prev.filter(item => item.Email !== u.Email));
+      if (editing && editing.Email === u.Email) {
+        setModal(false);
+      }
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  };
+
   const handleSave = async () => {
     if (!form.email.trim() || !form.name.trim() || !form.pin.trim()) {
       toast('Vui lòng điền đầy đủ thông tin', 'warning');
@@ -132,8 +156,26 @@ export default function Users() {
                       {u.Active === 'TRUE' ? '✓ Hoạt động' : '✗ Khóa'}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-outline btn-sm" onClick={() => openEdit(u)}>✏️ Sửa</button>
+                    <button
+                      className="btn btn-sm"
+                      style={{
+                        marginLeft: '6px',
+                        backgroundColor: '#fee2e2',
+                        color: '#ef4444',
+                        border: '1px solid #fca5a5',
+                      }}
+                      onClick={() => handleDelete(u)}
+                      disabled={u.Email?.toLowerCase() === user.email?.toLowerCase()}
+                      title={
+                        u.Email?.toLowerCase() === user.email?.toLowerCase()
+                          ? 'Không thể tự xóa tài khoản đang đăng nhập'
+                          : 'Xóa tài khoản'
+                      }
+                    >
+                      🗑️ Xóa
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -189,11 +231,25 @@ export default function Users() {
             <option value="FALSE">Khóa</option>
           </select>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-          <button className="btn btn-outline" onClick={() => setModal(false)}>Hủy</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Đang lưu...' : '💾 Lưu'}
-          </button>
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem' }}>
+          <div>
+            {editing && editing.Email?.toLowerCase() !== user.email?.toLowerCase() && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ backgroundColor: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5' }}
+                onClick={() => handleDelete(editing)}
+              >
+                🗑️ Xóa tài khoản
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button className="btn btn-outline" onClick={() => setModal(false)}>Hủy</button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? 'Đang lưu...' : '💾 Lưu'}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>
