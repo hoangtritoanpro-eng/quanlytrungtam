@@ -114,7 +114,7 @@ const EMPTY_SLOT_FORM = {
   capacity: '20',
   startDate: '',
   endDate: '',
-  contact: '0905304796',
+  contact: '0971120360',
   notes: '',
 };
 
@@ -178,12 +178,15 @@ export default function Schedule({ isPublicPage = false }) {
       const saved = localStorage.getItem(STORAGE_KEYS.SITES);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      const v1 = localStorage.getItem('toanx_schedule_sites_v1');
-      if (v1) {
-        const parsed = JSON.parse(v1);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasOld = parsed.some(
+            s =>
+              s.address?.includes('Phú lộc') ||
+              s.phone === '0905304796' ||
+              s.phone === '0783700833'
+          );
+          if (!hasOld) return parsed;
+        }
       }
     } catch (e) {}
     return DEFAULT_SITES;
@@ -2249,7 +2252,7 @@ export default function Schedule({ isPublicPage = false }) {
             <label className="form-label">SĐT Liên hệ</label>
             <input
               className="form-control"
-              placeholder="VD: 0905304796"
+              placeholder="VD: 0971120360"
               value={slotForm.contact}
               onChange={e => setSlotForm(f => ({ ...f, contact: e.target.value }))}
             />
@@ -2342,7 +2345,7 @@ export default function Schedule({ isPublicPage = false }) {
             <label className="form-label">Số điện thoại</label>
             <input
               className="form-control"
-              placeholder="VD: 0905304796"
+              placeholder="VD: 0971120360"
               value={siteForm.phone}
               onChange={e => setSiteForm(f => ({ ...f, phone: e.target.value }))}
             />
@@ -2504,7 +2507,7 @@ export default function Schedule({ isPublicPage = false }) {
             <label className="form-label">Số điện thoại</label>
             <input
               className="form-control"
-              placeholder="0905304796"
+              placeholder="0971120360"
               value={teacherForm.phone}
               onChange={e => setTeacherForm(f => ({ ...f, phone: e.target.value }))}
             />

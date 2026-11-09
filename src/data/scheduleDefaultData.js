@@ -3,17 +3,9 @@ export const DEFAULT_SITES = [
   {
     "id": "21703",
     "name": "Cơ sở 1",
-    "address": "54 Phú lộc 17, P. Thanh Khê, Tp. Đà Nẵng",
-    "phone": "0905304796",
-    "mapUrl": "https://maps.app.goo.gl/YKyh9LiQ1UqjoTqC8",
-    "note": ""
-  },
-  {
-    "id": "21704",
-    "name": "Cơ sở 2",
-    "address": "29 Trần Hữu Trang, P. Hòa Cường, Tp. Đà Nẵng",
-    "phone": "0783700833",
-    "mapUrl": "https://maps.app.goo.gl/GqERM9JGtg4awyQf6",
+    "address": "28 Nguyễn Hữu Thọ, Tp. Đà Nẵng",
+    "phone": "0971120360",
+    "mapUrl": "https://maps.google.com/?q=28+Nguy%E1%BB%85n+H%E1%BB%AFu+Th%E1%BB%8D,+%C4%90%C3%A0+N%E1%BA%B5ng",
     "note": ""
   }
 ];
