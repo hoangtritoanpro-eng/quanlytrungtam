@@ -1,5 +1,5 @@
 const ENV_GAS_URL = import.meta.env.VITE_GAS_URL;
-const DB_KEY = 'nangmai_local_db_v1';
+const DB_KEY = 'nangmai_local_db_v2';
 
 export const fmtCurrency = (n) =>
   new Intl.NumberFormat('vi-VN', {
@@ -18,7 +18,6 @@ export const fmtDate = (d) => {
 export const today = () => new Date().toISOString().slice(0, 10);
 
 function getInitialDb() {
-  const td = today();
   return {
     users: [
       {
@@ -29,168 +28,13 @@ function getInitialDb() {
         FirstLoginFlexPin: true,
         Active: 'TRUE',
       },
-      {
-        Email: 'admin@example.com',
-        Name: 'Quản trị viên Nắng Mai',
-        Role: 'ADMIN',
-        Pin: '1234',
-        FirstLoginFlexPin: true,
-        Active: 'TRUE',
-      },
-      {
-        Email: 'vomanhcuong1612@gmail.com',
-        Name: 'Thầy Võ Mạnh Cường',
-        Role: 'TEACHER',
-        Pin: '1234',
-        Active: 'TRUE',
-      },
-      {
-        Email: 'quynhnhi@gmail.com',
-        Name: 'Cô Bùi Ngọc Quỳnh Nhi',
-        Role: 'TEACHER',
-        Pin: '1234',
-        Active: 'TRUE',
-      },
     ],
-    classes: [
-      {
-        ClassID: 'CLS001',
-        ClassName: '8A_CS2',
-        Subject: 'Toán',
-        Grade: '8',
-        FeePerSession: '100000',
-        StartDate: '2026-06-01',
-        Status: 'ACTIVE',
-      },
-      {
-        ClassID: 'CLS002',
-        ClassName: '6A_CS2',
-        Subject: 'Toán',
-        Grade: '6',
-        FeePerSession: '100000',
-        StartDate: '2026-06-01',
-        Status: 'ACTIVE',
-      },
-      {
-        ClassID: 'CLS003',
-        ClassName: '11A 26.27',
-        Subject: 'Toán',
-        Grade: '11',
-        FeePerSession: '120000',
-        StartDate: '2026-06-01',
-        Status: 'ACTIVE',
-      },
-      {
-        ClassID: 'CLS004',
-        ClassName: '10A_CS2',
-        Subject: 'Toán',
-        Grade: '10',
-        FeePerSession: '120000',
-        StartDate: '2026-06-01',
-        Status: 'ACTIVE',
-      },
-      {
-        ClassID: 'CLS005',
-        ClassName: '12A 26.27',
-        Subject: 'Toán',
-        Grade: '12',
-        FeePerSession: '150000',
-        StartDate: '2026-06-01',
-        Status: 'ACTIVE',
-      },
-      {
-        ClassID: 'CLS006',
-        ClassName: '9A 26.27',
-        Subject: 'Toán',
-        Grade: '9',
-        FeePerSession: '120000',
-        StartDate: '2026-06-01',
-        Status: 'ACTIVE',
-      },
-    ],
-    students: [
-      {
-        StudentID: 'STU001',
-        FullName: 'Nguyễn Minh Khôi',
-        SchoolClass: '8/1',
-        ParentName: 'Nguyễn Văn Hùng',
-        ParentPhone: '0905123456',
-        ParentEmail: 'hungnv@gmail.com',
-        Note: 'Học sinh chăm ngoan',
-        Status: 'ACTIVE',
-      },
-      {
-        StudentID: 'STU002',
-        FullName: 'Trần Bảo Ngọc',
-        SchoolClass: '8/2',
-        ParentName: 'Trần Thị Mai',
-        ParentPhone: '0914234567',
-        ParentEmail: 'maitt@gmail.com',
-        Note: '',
-        Status: 'ACTIVE',
-      },
-      {
-        StudentID: 'STU003',
-        FullName: 'Lê Hoàng Nam',
-        SchoolClass: '11A1',
-        ParentName: 'Lê Quốc Tuấn',
-        ParentPhone: '0988345678',
-        ParentEmail: 'tuanlq@gmail.com',
-        Note: '',
-        Status: 'ACTIVE',
-      },
-    ],
-    enrollments: [
-      { StudentID: 'STU001', ClassID: 'CLS001', EnrollDate: '2026-06-01', Status: 'ACTIVE' },
-      { StudentID: 'STU002', ClassID: 'CLS001', EnrollDate: '2026-06-01', Status: 'ACTIVE' },
-      { StudentID: 'STU003', ClassID: 'CLS003', EnrollDate: '2026-06-01', Status: 'ACTIVE' },
-    ],
-    teacherClasses: [
-      { TeacherEmail: 'quynhnhi@gmail.com', ClassID: 'CLS001' },
-      { TeacherEmail: 'quynhnhi@gmail.com', ClassID: 'CLS002' },
-      { TeacherEmail: 'vomanhcuong1612@gmail.com', ClassID: 'CLS003' },
-      { TeacherEmail: 'vomanhcuong1612@gmail.com', ClassID: 'CLS005' },
-    ],
-    attendance: [
-      {
-        Date: td,
-        ClassID: 'CLS001',
-        StudentID: 'STU001',
-        Present: 'TRUE',
-        Note: '',
-        By: 'toanhoang@gmail.com',
-      },
-      {
-        Date: td,
-        ClassID: 'CLS001',
-        StudentID: 'STU002',
-        Present: 'TRUE',
-        Note: '',
-        By: 'toanhoang@gmail.com',
-      },
-    ],
-    scores: [
-      {
-        Date: td,
-        ClassID: 'CLS001',
-        ExamName: 'Kiểm tra 15 phút',
-        MaxScore: '10',
-        StudentID: 'STU001',
-        Score: '9',
-        Note: 'Tốt',
-        By: 'toanhoang@gmail.com',
-      },
-      {
-        Date: td,
-        ClassID: 'CLS001',
-        ExamName: 'Kiểm tra 15 phút',
-        MaxScore: '10',
-        StudentID: 'STU002',
-        Score: '8.5',
-        Note: 'Khá giỏi',
-        By: 'toanhoang@gmail.com',
-      },
-    ],
+    classes: [],
+    students: [],
+    enrollments: [],
+    teacherClasses: [],
+    attendance: [],
+    scores: [],
   };
 }
 
@@ -199,9 +43,55 @@ function loadDb() {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.users)) return parsed;
+      if (parsed && Array.isArray(parsed.users)) {
+        // Tự động dọn sạch các tài khoản mẫu cũ nếu còn tồn tại
+        const mockEmails = ['admin@example.com', 'vomanhcuong1612@gmail.com', 'quynhnhi@gmail.com'];
+        const hasMock = parsed.users.some(u => mockEmails.includes(u.Email?.toLowerCase()));
+        if (hasMock) {
+          parsed.users = parsed.users.filter(u => !mockEmails.includes(u.Email?.toLowerCase()));
+          if (parsed.users.length === 0) {
+            parsed.users = getInitialDb().users;
+          }
+          if (Array.isArray(parsed.teacherClasses)) {
+            parsed.teacherClasses = parsed.teacherClasses.filter(tc => !mockEmails.includes(tc.TeacherEmail?.toLowerCase()));
+          }
+          saveDb(parsed);
+        }
+        return parsed;
+      }
     }
   } catch (e) {}
+
+  // Tự động dọn dẹp và nâng cấp từ bản lưu cũ v1 nếu có
+  try {
+    const oldRaw = localStorage.getItem('nangmai_local_db_v1');
+    if (oldRaw) {
+      const old = JSON.parse(oldRaw);
+      if (old && Array.isArray(old.users)) {
+        const mockEmails = ['admin@example.com', 'vomanhcuong1612@gmail.com', 'quynhnhi@gmail.com'];
+        const cleanUsers = old.users.filter(u => !mockEmails.includes(u.Email?.toLowerCase()));
+        const cleanClasses = Array.isArray(old.classes)
+          ? old.classes.filter(c => !['CLS001', 'CLS002', 'CLS003', 'CLS004', 'CLS005', 'CLS006'].includes(c.ClassID))
+          : [];
+        const cleanStudents = Array.isArray(old.students)
+          ? old.students.filter(s => !['STU001', 'STU002', 'STU003'].includes(s.StudentID))
+          : [];
+
+        const migrated = {
+          users: cleanUsers.length > 0 ? cleanUsers : getInitialDb().users,
+          classes: cleanClasses,
+          students: cleanStudents,
+          enrollments: Array.isArray(old.enrollments) ? old.enrollments.filter(e => cleanStudents.some(s => s.StudentID === e.StudentID)) : [],
+          teacherClasses: Array.isArray(old.teacherClasses) ? old.teacherClasses.filter(tc => cleanUsers.some(u => u.Email === tc.TeacherEmail)) : [],
+          attendance: Array.isArray(old.attendance) ? old.attendance.filter(a => cleanStudents.some(s => s.StudentID === a.StudentID)) : [],
+          scores: Array.isArray(old.scores) ? old.scores.filter(sc => cleanStudents.some(s => s.StudentID === sc.StudentID)) : [],
+        };
+        saveDb(migrated);
+        return migrated;
+      }
+    }
+  } catch (e) {}
+
   const initial = getInitialDb();
   saveDb(initial);
   return initial;
@@ -551,6 +441,41 @@ function localApiHandler(action, body = {}, email = '') {
       }
       saveDb(db);
       return 'deleted';
+    }
+
+    case 'resetDatabase': {
+      const clean = getInitialDb();
+      saveDb(clean);
+      return clean;
+    }
+
+    case 'exportDatabase': {
+      return {
+        db,
+        scheduleSlots: JSON.parse(localStorage.getItem('toanx_schedule_slots_v2') || localStorage.getItem('toanx_schedule_slots_v1') || '[]'),
+        scheduleSites: JSON.parse(localStorage.getItem('toanx_schedule_sites_v2') || localStorage.getItem('toanx_schedule_sites_v1') || '[]'),
+        scheduleTeachers: JSON.parse(localStorage.getItem('toanx_schedule_teachers_v2') || localStorage.getItem('toanx_schedule_teachers_v1') || '{}'),
+      };
+    }
+
+    case 'importDatabase': {
+      if (body.data && typeof body.data === 'object') {
+        const { db: importedDb, scheduleSlots, scheduleSites, scheduleTeachers } = body.data;
+        if (importedDb && typeof importedDb === 'object') {
+          saveDb(importedDb);
+        }
+        if (Array.isArray(scheduleSlots)) {
+          localStorage.setItem('toanx_schedule_slots_v2', JSON.stringify(scheduleSlots));
+        }
+        if (Array.isArray(scheduleSites)) {
+          localStorage.setItem('toanx_schedule_sites_v2', JSON.stringify(scheduleSites));
+        }
+        if (scheduleTeachers && typeof scheduleTeachers === 'object') {
+          localStorage.setItem('toanx_schedule_teachers_v2', JSON.stringify(scheduleTeachers));
+        }
+        return 'imported';
+      }
+      throw new Error('Dữ liệu nhập vào không hợp lệ');
     }
 
     case 'getTuition': {

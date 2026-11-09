@@ -12,9 +12,9 @@ import {
 import '../schedule.css';
 
 const STORAGE_KEYS = {
-  SLOTS: 'toanx_schedule_slots_v1',
-  SITES: 'toanx_schedule_sites_v1',
-  TEACHERS: 'toanx_schedule_teachers_v1',
+  SLOTS: 'toanx_schedule_slots_v2',
+  SITES: 'toanx_schedule_sites_v2',
+  TEACHERS: 'toanx_schedule_teachers_v2',
 };
 
 const WEEKDAYS = [
@@ -155,7 +155,7 @@ export default function Schedule({ isPublicPage = false }) {
     return jsDay === 0 ? 8 : jsDay + 1;
   }, []);
 
-  // Data state (initialized from localStorage or default data)
+  // Data state (initialized from localStorage or clean state)
   const [slots, setSlots] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SLOTS);
@@ -163,8 +163,14 @@ export default function Schedule({ isPublicPage = false }) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
       }
+      const v1 = localStorage.getItem('toanx_schedule_slots_v1');
+      if (v1 !== null) {
+        const parsed = JSON.parse(v1);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (e) {}
-    return DEFAULT_SCHEDULE_SLOTS;
+    // Mặc định để trống sạch sẽ, không tải 45 ca học mẫu của toanx khi triển khai mới
+    return [];
   });
 
   const [sites, setSites] = useState(() => {
@@ -174,6 +180,11 @@ export default function Schedule({ isPublicPage = false }) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
+      const v1 = localStorage.getItem('toanx_schedule_sites_v1');
+      if (v1) {
+        const parsed = JSON.parse(v1);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
     } catch (e) {}
     return DEFAULT_SITES;
   });
@@ -181,12 +192,13 @@ export default function Schedule({ isPublicPage = false }) {
   const [teacherProfiles, setTeacherProfiles] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TEACHERS);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') return parsed;
       }
     } catch (e) {}
-    return DEFAULT_TEACHER_PROFILES;
+    // Mặc định để trống sạch sẽ, không hiển thị giáo viên mẫu cũ
+    return {};
   });
 
   const [systemClasses, setSystemClasses] = useState([]);
