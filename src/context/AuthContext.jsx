@@ -5,20 +5,31 @@ const Ctx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('edu_user')); }
-    catch { return null; }
+    try {
+      const parsed = JSON.parse(localStorage.getItem('edu_user'));
+      if (parsed && typeof parsed === 'object' && parsed.email && parsed.role) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   });
 
   const login = async (email, pin) => {
     const u = await api('login', { pin }, email);
     setUser(u);
-    localStorage.setItem('edu_user', JSON.stringify(u));
+    try {
+      localStorage.setItem('edu_user', JSON.stringify(u));
+    } catch {}
     return u;
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('edu_user');
+    try {
+      localStorage.removeItem('edu_user');
+    } catch {}
   };
 
   return <Ctx.Provider value={{ user, login, logout }}>{children}</Ctx.Provider>;

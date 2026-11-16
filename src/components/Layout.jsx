@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import Modal from './Modal';
@@ -41,8 +41,10 @@ export default function Layout() {
   const [importJson, setImportJson] = useState('');
 
   if (!user) {
-    navigate('/login', { replace: true });
-    return null;
+    if (location.pathname === '/schedule') {
+      return <Navigate to="/lich-hoc" replace />;
+    }
+    return <Navigate to="/login" replace />;
   }
 
   const items = NAV[user.role] || [];

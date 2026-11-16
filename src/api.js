@@ -565,8 +565,12 @@ function localApiHandler(action, body = {}, email = '') {
 }
 
 export async function api(action, data = {}, userEmail = '') {
-  const customGasUrl =
-    typeof window !== 'undefined' ? localStorage.getItem('nangmai_gas_url') : '';
+  let customGasUrl = '';
+  try {
+    if (typeof window !== 'undefined') {
+      customGasUrl = localStorage.getItem('nangmai_gas_url') || '';
+    }
+  } catch {}
   const baseUrl = ENV_GAS_URL || customGasUrl;
 
   const payload = { action, authEmail: userEmail, email: userEmail, ...data };
