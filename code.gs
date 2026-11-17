@@ -15,58 +15,153 @@ var SHEET = {
   TCH_CLASSES:  'TeacherClasses',
 };
 
-// ── Cột của từng sheet (theo thứ tự, 0-indexed) ────────────
+// ── Cột của từng sheet ─────────────────────────────────────
+// Mọi thao tác đọc/ghi đều tra theo TÊN cột ở dòng tiêu đề, nên thứ tự cột
+// trên sheet thật có thể khác ở đây. Cột nào còn thiếu sẽ tự được thêm vào cuối.
 var COL = {
   USERS:        ['Email','Name','Role','Pin','Active'],
   CLASSES:      ['ClassID','ClassName','Subject','Grade','FeePerSession','StartDate','Status'],
-  STUDENTS:     ['StudentID','FullName','ParentName','ParentPhone','ParentEmail','Note','Status'],
+  STUDENTS:     ['StudentID','FullName','SchoolClass','ParentName','ParentPhone','ParentEmail','Note','Status'],
   ENROLLMENTS:  ['StudentID','ClassID','EnrollDate','Status'],
   ATTENDANCE:   ['Date','ClassID','StudentID','Present','Note','By'],
   SCORES:       ['Date','ClassID','ExamName','MaxScore','StudentID','Score','Note','By'],
   TCH_CLASSES:  ['TeacherEmail','ClassID'],
 };
 
+var ROLES = ['ADMIN', 'TEACHER', 'TA'];
+
 // ────────────────────────────────────────────────────────────
 //  HELPERS
 // ────────────────────────────────────────────────────────────
 function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
+var _sheetCache = {};
+
+/** Lấy sheet theo tên; tạo mới nếu chưa có và bổ sung các cột còn thiếu. */
 function getSheet(name) {
+  if (_sheetCache[name]) return _sheetCache[name];
   var sheet = ss().getSheetByName(name);
-  if (!sheet) {
-    sheet = ss().insertSheet(name);
-    var cols = COL[Object.keys(SHEET).find(k => SHEET[k] === name)];
-    if (cols) sheet.getRange(1, 1, 1, cols.length).setValues([cols]);
+  if (!sheet) sheet = ss().insertSheet(name);
+
+  var key  = Object.keys(SHEET).find(function(k){ return SHEET[k] === name; });
+  var cols = COL[key] || [];
+  var lastCol = sheet.getLastColumn();
+  var headers = lastCol > 0
+    ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h){ return String(h).trim(); })
+    : [];
+  var missing = cols.filter(function(c){ return headers.indexOf(c) === -1; });
+  if (missing.length) {
+    sheet.getRange(1, headers.length + 1, 1, missing.length).setValues([missing]);
   }
+  _sheetCache[name] = sheet;
   return sheet;
 }
 
-/** Convert sheet data to array of objects */
-function sheetToObjects(sheet) {
-  var data = sheet.getDataRange().getValues();
-  if (data.length < 2) return [];
-  var headers = data[0];
-  return data.slice(1).map(function(row) {
-    var obj = {};
+/**
+ * Chuẩn hóa giá trị ô về chuỗi. Google Sheets tự đổi '2026-01-31' thành Date
+ * và 'TRUE' thành boolean, nên phải đổi ngược lại để so sánh chuỗi cho đúng.
+ */
+function cellStr(v) {
+  if (v === null || v === undefined) return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, ss().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  }
+  if (v === true)  return 'TRUE';
+  if (v === false) return 'FALSE';
+  return String(v);
+}
+
+/**
+ * Đọc toàn bộ sheet.
+ * Trả về { sheet, headers, idx: {tênCột: chỉSố}, rows: [{...cột, _row: sốDòngTrênSheet}] }
+ */
+function readTable(name) {
+  var sheet  = getSheet(name);
+  var values = sheet.getDataRange().getValues();
+  var headers = (values[0] || []).map(function(h){ return String(h).trim(); });
+  var idx = {};
+  headers.forEach(function(h, i){ if (h && idx[h] === undefined) idx[h] = i; });
+  var rows = [];
+  for (var r = 1; r < values.length; r++) {
+    var obj = { _row: r + 1 };
+    var empty = true;
     headers.forEach(function(h, i) {
-      obj[h] = (row[i] === null || row[i] === undefined) ? '' : String(row[i]);
+      if (!h) return;
+      obj[h] = cellStr(values[r][i]);
+      if (obj[h] !== '') empty = false;
     });
-    return obj;
+    if (!empty) rows.push(obj);
+  }
+  return { sheet: sheet, headers: headers, idx: idx, rows: rows };
+}
+
+/** Bỏ trường nội bộ _row trước khi trả về cho client. */
+function clean(rows) {
+  return rows.map(function(r) {
+    var o = {};
+    Object.keys(r).forEach(function(k){ if (k !== '_row') o[k] = r[k]; });
+    return o;
   });
+}
+
+/** Convert sheet data to array of objects (giữ lại cho tương thích). */
+function sheetToObjects(sheet) {
+  return clean(readTable(sheet.getName()).rows);
+}
+
+/** Thêm nhiều dòng (mảng object theo tên cột). Ghi dạng văn bản để giữ số 0 đầu, ngày, TRUE/FALSE. */
+function appendObjects(t, objs) {
+  if (!objs.length) return;
+  var data = objs.map(function(o) {
+    return t.headers.map(function(h) {
+      return (h && o[h] !== undefined && o[h] !== null) ? String(o[h]) : '';
+    });
+  });
+  var start = Math.max(t.sheet.getLastRow(), 1) + 1;
+  t.sheet.getRange(start, 1, data.length, t.headers.length)
+    .setNumberFormat('@')
+    .setValues(data);
+}
+
+/** Cập nhật một số cột của một dòng theo tên cột. */
+function updateRow(t, rowNumber, changes) {
+  Object.keys(changes).forEach(function(k) {
+    if (changes[k] === undefined || t.idx[k] === undefined) return;
+    t.sheet.getRange(rowNumber, t.idx[k] + 1)
+      .setNumberFormat('@')
+      .setValue(String(changes[k]));
+  });
+}
+
+/** Xóa các dòng thỏa điều kiện. Trả về số dòng đã xóa. */
+function deleteRows(t, pred) {
+  var targets = t.rows.filter(pred).map(function(r){ return r._row; });
+  targets.sort(function(a, b){ return b - a; });   // xóa từ dưới lên để không lệch số dòng
+  targets.forEach(function(n){ t.sheet.deleteRow(n); });
+  return targets.length;
+}
+
+/** Sinh ID kiểu CLS001, STU012 dựa trên số lớn nhất hiện có (không trùng sau khi xóa). */
+function nextId(prefix, t, key) {
+  var max = 0;
+  t.rows.forEach(function(r) {
+    var n = parseInt(String(r[key] || '').replace(prefix, ''), 10);
+    if (isFinite(n) && n > max) max = n;
+  });
+  var s = String(max + 1);
+  while (s.length < 3) s = '0' + s;
+  return prefix + s;
+}
+
+function sameEmail(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
 function ok(data)  { return ContentService.createTextOutput(JSON.stringify({ ok: true,  data: data  })).setMimeType(ContentService.MimeType.JSON); }
 function err(msg)  { return ContentService.createTextOutput(JSON.stringify({ ok: false, error: msg })).setMimeType(ContentService.MimeType.JSON); }
 
-/** Generate ID like CLS001, STU012 */
-function generateId(prefix, sheet) {
-  var rows = sheet.getLastRow() - 1;
-  var n = rows < 0 ? 0 : rows;
-  return prefix + String(n + 1).padStart(3, '0');
-}
-
 function today() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), ss().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
 }
 
 // ────────────────────────────────────────────────────────────
@@ -74,15 +169,16 @@ function today() {
 // ────────────────────────────────────────────────────────────
 function requireAuth(email) {
   if (!email) throw new Error('Chưa đăng nhập');
-  var users = sheetToObjects(getSheet(SHEET.USERS));
-  var u = users.find(function(x){ return x.Email === email && x.Active === 'TRUE'; });
+  var u = readTable(SHEET.USERS).rows.find(function(x) {
+    return sameEmail(x.Email, email) && x.Active === 'TRUE';
+  });
   if (!u) throw new Error('Tài khoản không tồn tại hoặc đã bị khóa');
   return u;
 }
 
 function requireRole(email, roles) {
   var u = requireAuth(email);
-  if (!roles.includes(u.Role)) throw new Error('Không có quyền thực hiện thao tác này');
+  if (roles.indexOf(u.Role) === -1) throw new Error('Không có quyền thực hiện thao tác này');
   return u;
 }
 
@@ -90,28 +186,37 @@ function requireRole(email, roles) {
 //  ENTRY POINT
 // ────────────────────────────────────────────────────────────
 function doPost(e) {
+  var lock = LockService.getScriptLock();
   try {
-    var body = JSON.parse(e.postData.contents);
+    lock.waitLock(20000);   // tránh hai người ghi cùng lúc làm trùng ID / lệch dòng
+  } catch (lockEx) {
+    return err('Hệ thống đang bận, vui lòng thử lại sau giây lát');
+  }
+  try {
+    var body   = JSON.parse(e.postData.contents);
     var action = body.action;
-    var email  = body.email || '';
+    // Frontend gửi email người đang đăng nhập ở authEmail. Trường `email` có thể bị
+    // ghi đè bởi dữ liệu form (ví dụ email của tài khoản mới khi addUser).
+    var email  = String(body.authEmail || body.email || '').trim();
 
     // Public actions (no auth needed)
     if (action === 'getStudentReport') return getStudentReport(body);
 
-    // Auth required
     switch (action) {
       // ── Auth ──────────────────────────────────
-      case 'login':           return login(body);
+      case 'login':           return login(body, email);
 
       // ── Classes ───────────────────────────────
       case 'getClasses':      return getClasses(body, email);
       case 'addClass':        return addClass(body, email);
       case 'editClass':       return editClass(body, email);
+      case 'deleteClass':     return deleteClass(body, email);
 
       // ── Students ──────────────────────────────
       case 'getStudents':     return getStudents(body, email);
       case 'addStudent':      return addStudent(body, email);
       case 'editStudent':     return editStudent(body, email);
+      case 'deleteStudent':   return deleteStudent(body, email);
 
       // ── Enrollments ───────────────────────────
       case 'getClassRoster':  return getClassRoster(body, email);
@@ -136,6 +241,7 @@ function doPost(e) {
       case 'getUsers':        return getUsers(body, email);
       case 'addUser':         return addUser(body, email);
       case 'editUser':        return editUser(body, email);
+      case 'deleteUser':      return deleteUser(body, email);
 
       // ── Dashboard / Tuition ───────────────────
       case 'getDashboard':    return getDashboard(body, email);
@@ -145,16 +251,19 @@ function doPost(e) {
     }
   } catch(ex) {
     return err(ex.message || String(ex));
+  } finally {
+    lock.releaseLock();
   }
 }
 
 // ────────────────────────────────────────────────────────────
 //  LOGIN
 // ────────────────────────────────────────────────────────────
-function login(body) {
-  var users = sheetToObjects(getSheet(SHEET.USERS));
-  var u = users.find(function(x){
-    return x.Email === body.email && x.Pin === String(body.pin) && x.Active === 'TRUE';
+function login(body, email) {
+  var pin = String(body.pin === undefined || body.pin === null ? '' : body.pin).trim();
+  if (!email || !pin) return err('Vui lòng nhập email và PIN');
+  var u = readTable(SHEET.USERS).rows.find(function(x) {
+    return sameEmail(x.Email, email) && x.Pin === pin && x.Active === 'TRUE';
   });
   if (!u) return err('Email hoặc PIN không đúng');
   return ok({ email: u.Email, name: u.Name, role: u.Role });
@@ -164,94 +273,110 @@ function login(body) {
 //  CLASSES
 // ────────────────────────────────────────────────────────────
 function getClasses(body, email) {
-  requireAuth(email);
-  var u = requireAuth(email);
-  var all = sheetToObjects(getSheet(SHEET.CLASSES));
+  var u   = requireAuth(email);
+  var all = readTable(SHEET.CLASSES).rows;
 
   // Teachers/TAs only see assigned classes
   if (u.Role === 'TEACHER' || u.Role === 'TA') {
-    var assigned = sheetToObjects(getSheet(SHEET.TCH_CLASSES))
-      .filter(function(x){ return x.TeacherEmail === email; })
+    var assigned = readTable(SHEET.TCH_CLASSES).rows
+      .filter(function(x){ return sameEmail(x.TeacherEmail, u.Email); })
       .map(function(x){ return x.ClassID; });
-    all = all.filter(function(c){ return assigned.includes(c.ClassID); });
+    all = all.filter(function(c){ return assigned.indexOf(c.ClassID) !== -1; });
   }
-  return ok(all);
+  return ok(clean(all));
 }
 
 function addClass(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.CLASSES);
-  var id = generateId('CLS', sheet);
-  sheet.appendRow([
-    id,
-    body.className || '',
-    body.subject   || '',
-    body.grade     || '',
-    body.feePerSession || 0,
-    body.startDate || today(),
-    body.status    || 'ACTIVE',
-  ]);
+  var t  = readTable(SHEET.CLASSES);
+  var id = nextId('CLS', t, 'ClassID');
+  appendObjects(t, [{
+    ClassID:       id,
+    ClassName:     body.className || '',
+    Subject:       body.subject   || '',
+    Grade:         body.grade     || '',
+    FeePerSession: body.feePerSession || 0,
+    StartDate:     body.startDate || today(),
+    Status:        body.status    || 'ACTIVE',
+  }]);
   return ok({ classId: id });
 }
 
 function editClass(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.CLASSES);
-  var data  = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === body.classId) {
-      sheet.getRange(i+1, 2).setValue(body.className    || data[i][1]);
-      sheet.getRange(i+1, 3).setValue(body.subject      || data[i][2]);
-      sheet.getRange(i+1, 4).setValue(body.grade        || data[i][3]);
-      sheet.getRange(i+1, 5).setValue(body.feePerSession !== undefined ? body.feePerSession : data[i][4]);
-      sheet.getRange(i+1, 6).setValue(body.startDate    || data[i][5]);
-      sheet.getRange(i+1, 7).setValue(body.status       || data[i][6]);
-      return ok('updated');
-    }
-  }
-  return err('Không tìm thấy lớp ' + body.classId);
+  var t   = readTable(SHEET.CLASSES);
+  var row = t.rows.find(function(c){ return c.ClassID === body.classId; });
+  if (!row) return err('Không tìm thấy lớp ' + body.classId);
+  updateRow(t, row._row, {
+    ClassName:     body.className,
+    Subject:       body.subject,
+    Grade:         body.grade,
+    FeePerSession: body.feePerSession,
+    StartDate:     body.startDate,
+    Status:        body.status || undefined,
+  });
+  return ok('updated');
+}
+
+function deleteClass(body, email) {
+  requireRole(email, ['ADMIN']);
+  var n = deleteRows(readTable(SHEET.CLASSES), function(c){ return c.ClassID === body.classId; });
+  if (!n) return err('Không tìm thấy lớp ' + body.classId);
+  deleteRows(readTable(SHEET.ENROLLMENTS), function(e){ return e.ClassID === body.classId; });
+  deleteRows(readTable(SHEET.TCH_CLASSES), function(x){ return x.ClassID === body.classId; });
+  return ok('deleted');
 }
 
 // ────────────────────────────────────────────────────────────
 //  STUDENTS
 // ────────────────────────────────────────────────────────────
 function getStudents(body, email) {
-  requireRole(email, ['ADMIN']);
-  return ok(sheetToObjects(getSheet(SHEET.STUDENTS)));
+  // Giáo viên cũng cần danh sách này để ghi danh học sinh vào lớp của mình
+  requireRole(email, ['ADMIN', 'TEACHER']);
+  return ok(clean(readTable(SHEET.STUDENTS).rows));
 }
 
 function addStudent(body, email) {
   requireRole(email, ['ADMIN', 'TEACHER']);
-  var sheet = getSheet(SHEET.STUDENTS);
-  var id = generateId('STU', sheet);
-  sheet.appendRow([
-    id,
-    body.fullName    || '',
-    body.parentName  || '',
-    body.parentPhone || '',
-    body.parentEmail || '',
-    body.note        || '',
-    'ACTIVE',
-  ]);
+  var t  = readTable(SHEET.STUDENTS);
+  var id = nextId('STU', t, 'StudentID');
+  appendObjects(t, [{
+    StudentID:   id,
+    FullName:    body.fullName    || '',
+    SchoolClass: body.schoolClass || '',
+    ParentName:  body.parentName  || '',
+    ParentPhone: body.parentPhone || '',
+    ParentEmail: body.parentEmail || '',
+    Note:        body.note        || '',
+    Status:      body.status      || 'ACTIVE',
+  }]);
   return ok({ studentId: id });
 }
 
 function editStudent(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.STUDENTS);
-  var data  = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === body.studentId) {
-      sheet.getRange(i+1, 2).setValue(body.fullName    !== undefined ? body.fullName    : data[i][1]);
-      sheet.getRange(i+1, 3).setValue(body.parentName  !== undefined ? body.parentName  : data[i][2]);
-      sheet.getRange(i+1, 4).setValue(body.parentPhone !== undefined ? body.parentPhone : data[i][3]);
-      sheet.getRange(i+1, 5).setValue(body.parentEmail !== undefined ? body.parentEmail : data[i][4]);
-      sheet.getRange(i+1, 6).setValue(body.note        !== undefined ? body.note        : data[i][5]);
-      sheet.getRange(i+1, 7).setValue(body.status      || data[i][6]);
-      return ok('updated');
-    }
-  }
-  return err('Không tìm thấy học sinh ' + body.studentId);
+  var t   = readTable(SHEET.STUDENTS);
+  var row = t.rows.find(function(s){ return s.StudentID === body.studentId; });
+  if (!row) return err('Không tìm thấy học sinh ' + body.studentId);
+  updateRow(t, row._row, {
+    FullName:    body.fullName,
+    SchoolClass: body.schoolClass,
+    ParentName:  body.parentName,
+    ParentPhone: body.parentPhone,
+    ParentEmail: body.parentEmail,
+    Note:        body.note,
+    Status:      body.status || undefined,
+  });
+  return ok('updated');
+}
+
+function deleteStudent(body, email) {
+  requireRole(email, ['ADMIN']);
+  var n = deleteRows(readTable(SHEET.STUDENTS), function(s){ return s.StudentID === body.studentId; });
+  if (!n) return err('Không tìm thấy học sinh ' + body.studentId);
+  deleteRows(readTable(SHEET.ENROLLMENTS), function(e){ return e.StudentID === body.studentId; });
+  // Điểm danh và điểm số cũ được giữ lại để không mất lịch sử học phí.
+  return ok('deleted');
 }
 
 // ────────────────────────────────────────────────────────────
@@ -259,44 +384,33 @@ function editStudent(body, email) {
 // ────────────────────────────────────────────────────────────
 function getClassRoster(body, email) {
   requireAuth(email);
-  var enrolls  = sheetToObjects(getSheet(SHEET.ENROLLMENTS))
+  var enrolls = readTable(SHEET.ENROLLMENTS).rows
     .filter(function(e){ return e.ClassID === body.classId && e.Status === 'ACTIVE'; });
-  var students = sheetToObjects(getSheet(SHEET.STUDENTS));
-  var stuMap   = {};
-  students.forEach(function(s){ stuMap[s.StudentID] = s; });
+  var stuMap = {};
+  clean(readTable(SHEET.STUDENTS).rows).forEach(function(s){ stuMap[s.StudentID] = s; });
   return ok(enrolls.map(function(e){ return stuMap[e.StudentID] || { StudentID: e.StudentID, FullName: '??' }; }));
 }
 
 function enrollStudent(body, email) {
   requireRole(email, ['ADMIN', 'TEACHER']);
-  var sheet   = getSheet(SHEET.ENROLLMENTS);
-  var enrolls = sheetToObjects(sheet);
-  var exists  = enrolls.find(function(e){ return e.StudentID === body.studentId && e.ClassID === body.classId; });
-  if (exists) {
-    // Reactivate if removed
-    var data = sheet.getDataRange().getValues();
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === body.studentId && String(data[i][1]) === body.classId) {
-        sheet.getRange(i+1, 4).setValue('ACTIVE');
-        return ok('reactivated');
-      }
-    }
+  if (!body.studentId || !body.classId) return err('Thiếu học sinh hoặc lớp');
+  var t = readTable(SHEET.ENROLLMENTS);
+  var existing = t.rows.find(function(e){ return e.StudentID === body.studentId && e.ClassID === body.classId; });
+  if (existing) {
+    updateRow(t, existing._row, { Status: 'ACTIVE' });   // Reactivate if removed
+    return ok('reactivated');
   }
-  sheet.appendRow([ body.studentId, body.classId, today(), 'ACTIVE' ]);
+  appendObjects(t, [{ StudentID: body.studentId, ClassID: body.classId, EnrollDate: today(), Status: 'ACTIVE' }]);
   return ok('enrolled');
 }
 
 function removeEnrollment(body, email) {
   requireRole(email, ['ADMIN', 'TEACHER']);
-  var sheet = getSheet(SHEET.ENROLLMENTS);
-  var data  = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === body.studentId && String(data[i][1]) === body.classId) {
-      sheet.getRange(i+1, 4).setValue('REMOVED');
-      return ok('removed');
-    }
-  }
-  return err('Không tìm thấy enrollment');
+  var t = readTable(SHEET.ENROLLMENTS);
+  var existing = t.rows.find(function(e){ return e.StudentID === body.studentId && e.ClassID === body.classId; });
+  if (!existing) return err('Không tìm thấy enrollment');
+  updateRow(t, existing._row, { Status: 'REMOVED' });
+  return ok('removed');
 }
 
 // ────────────────────────────────────────────────────────────
@@ -304,128 +418,112 @@ function removeEnrollment(body, email) {
 // ────────────────────────────────────────────────────────────
 function getTeachers(body, email) {
   requireRole(email, ['ADMIN']);
-  var users = sheetToObjects(getSheet(SHEET.USERS));
+  var users = clean(readTable(SHEET.USERS).rows);
   return ok(users.filter(function(u){ return u.Role === 'TEACHER' || u.Role === 'TA'; }));
 }
 
 function getClassTeachers(body, email) {
   requireAuth(email);
-  var tc    = sheetToObjects(getSheet(SHEET.TCH_CLASSES))
+  var tc = readTable(SHEET.TCH_CLASSES).rows
     .filter(function(x){ return x.ClassID === body.classId; });
-  var users = sheetToObjects(getSheet(SHEET.USERS));
-  var uMap  = {};
-  users.forEach(function(u){ uMap[u.Email] = u; });
-  return ok(tc.map(function(x){ return uMap[x.TeacherEmail] || { Email: x.TeacherEmail, Name: '??', Role: '??' }; }));
+  var users = clean(readTable(SHEET.USERS).rows);
+  return ok(tc.map(function(x) {
+    var u = users.find(function(u){ return sameEmail(u.Email, x.TeacherEmail); });
+    // Không trả PIN ra ngoài ở danh sách này
+    return u
+      ? { Email: u.Email, Name: u.Name, Role: u.Role, Active: u.Active }
+      : { Email: x.TeacherEmail, Name: '??', Role: 'TEACHER' };
+  }));
 }
 
 function assignTeacher(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.TCH_CLASSES);
-  var rows  = sheetToObjects(sheet);
-  var exists = rows.find(function(r){ return r.TeacherEmail === body.teacherEmail && r.ClassID === body.classId; });
+  if (!body.teacherEmail || !body.classId) return err('Thiếu giáo viên hoặc lớp');
+  var t = readTable(SHEET.TCH_CLASSES);
+  var exists = t.rows.find(function(r){ return sameEmail(r.TeacherEmail, body.teacherEmail) && r.ClassID === body.classId; });
   if (exists) return err('Đã phân công rồi');
-  sheet.appendRow([ body.teacherEmail, body.classId ]);
+  appendObjects(t, [{ TeacherEmail: body.teacherEmail, ClassID: body.classId }]);
   return ok('assigned');
 }
 
 function removeTeacherFromClass(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.TCH_CLASSES);
-  var data  = sheet.getDataRange().getValues();
-  for (var i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]) === body.teacherEmail && String(data[i][1]) === body.classId) {
-      sheet.deleteRow(i + 1);
-      return ok('removed');
-    }
-  }
-  return err('Không tìm thấy phân công');
+  var n = deleteRows(readTable(SHEET.TCH_CLASSES), function(r) {
+    return sameEmail(r.TeacherEmail, body.teacherEmail) && r.ClassID === body.classId;
+  });
+  if (!n) return err('Không tìm thấy phân công');
+  return ok('removed');
 }
 
 // ────────────────────────────────────────────────────────────
 //  ATTENDANCE
 // ────────────────────────────────────────────────────────────
 function markAttendance(body, email) {
-  requireAuth(email);
+  var u = requireAuth(email);
   // body.records = [{ studentId, present, note }]
-  var sheet = getSheet(SHEET.ATTENDANCE);
-  var data  = sheet.getDataRange().getValues();
-  var date  = body.date || today();
+  var t    = readTable(SHEET.ATTENDANCE);
+  var date = body.date || today();
+  var toAdd = [];
 
-  body.records.forEach(function(rec) {
-    var found = false;
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === date &&
-          String(data[i][1]) === body.classId &&
-          String(data[i][2]) === rec.studentId) {
-        sheet.getRange(i+1, 4).setValue(rec.present ? 'TRUE' : 'FALSE');
-        sheet.getRange(i+1, 5).setValue(rec.note || '');
-        sheet.getRange(i+1, 6).setValue(email);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      sheet.appendRow([ date, body.classId, rec.studentId, rec.present ? 'TRUE' : 'FALSE', rec.note || '', email ]);
-      data.push([ date, body.classId, rec.studentId, rec.present ? 'TRUE' : 'FALSE', rec.note || '', email ]);
+  (body.records || []).forEach(function(rec) {
+    var present  = rec.present ? 'TRUE' : 'FALSE';
+    var existing = t.rows.find(function(r) {
+      return r.Date === date && r.ClassID === body.classId && r.StudentID === rec.studentId;
+    });
+    if (existing) {
+      updateRow(t, existing._row, { Present: present, Note: rec.note || '', By: u.Email });
+    } else {
+      toAdd.push({ Date: date, ClassID: body.classId, StudentID: rec.studentId, Present: present, Note: rec.note || '', By: u.Email });
     }
   });
+  appendObjects(t, toAdd);
   return ok('saved');
 }
 
 function getAttendance(body, email) {
   requireAuth(email);
-  var all = sheetToObjects(getSheet(SHEET.ATTENDANCE));
-  var result = all.filter(function(r){
+  var result = readTable(SHEET.ATTENDANCE).rows.filter(function(r) {
     var match = r.ClassID === body.classId;
     if (body.date)      match = match && r.Date === body.date;
     if (body.studentId) match = match && r.StudentID === body.studentId;
     return match;
   });
-  return ok(result);
+  return ok(clean(result));
 }
 
 // ────────────────────────────────────────────────────────────
 //  SCORES
 // ────────────────────────────────────────────────────────────
 function addScores(body, email) {
-  requireRole(email, ['ADMIN', 'TEACHER']);
-  var sheet = getSheet(SHEET.SCORES);
-  var data  = sheet.getDataRange().getValues();
-  var date  = body.date || today();
+  var u = requireRole(email, ['ADMIN', 'TEACHER']);
+  var t        = readTable(SHEET.SCORES);
+  var date     = body.date || today();
+  var maxScore = body.maxScore || 10;
+  var toAdd    = [];
 
   (body.records || []).forEach(function(rec) {
-    var found = false;
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][1]) === body.classId &&
-          String(data[i][2]) === body.examName &&
-          String(data[i][4]) === rec.studentId) {
-        sheet.getRange(i+1, 1).setValue(date);
-        sheet.getRange(i+1, 4).setValue(body.maxScore);
-        sheet.getRange(i+1, 6).setValue(rec.score);
-        sheet.getRange(i+1, 7).setValue(rec.note || '');
-        sheet.getRange(i+1, 8).setValue(email);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      sheet.appendRow([ date, body.classId, body.examName, body.maxScore, rec.studentId, rec.score, rec.note || '', email ]);
-      data.push([ date, body.classId, body.examName, body.maxScore, rec.studentId, rec.score, rec.note || '', email ]);
+    var existing = t.rows.find(function(r) {
+      return r.ClassID === body.classId && r.ExamName === body.examName && r.StudentID === rec.studentId;
+    });
+    if (existing) {
+      updateRow(t, existing._row, { Date: date, MaxScore: maxScore, Score: rec.score, Note: rec.note || '', By: u.Email });
+    } else {
+      toAdd.push({ Date: date, ClassID: body.classId, ExamName: body.examName, MaxScore: maxScore, StudentID: rec.studentId, Score: rec.score, Note: rec.note || '', By: u.Email });
     }
   });
+  appendObjects(t, toAdd);
   return ok('saved');
 }
 
 function getScores(body, email) {
   requireAuth(email);
-  var all = sheetToObjects(getSheet(SHEET.SCORES));
-  var result = all.filter(function(r){
+  var result = readTable(SHEET.SCORES).rows.filter(function(r) {
     var match = r.ClassID === body.classId;
     if (body.examName)  match = match && r.ExamName === body.examName;
     if (body.studentId) match = match && r.StudentID === body.studentId;
     return match;
   });
-  return ok(result);
+  return ok(clean(result));
 }
 
 // ────────────────────────────────────────────────────────────
@@ -433,33 +531,68 @@ function getScores(body, email) {
 // ────────────────────────────────────────────────────────────
 function getUsers(body, email) {
   requireRole(email, ['ADMIN']);
-  return ok(sheetToObjects(getSheet(SHEET.USERS)));
+  return ok(clean(readTable(SHEET.USERS).rows));
 }
 
 function addUser(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.USERS);
-  var users = sheetToObjects(sheet);
-  if (users.find(function(u){ return u.Email === body.email; }))
-    return err('Email đã tồn tại');
-  sheet.appendRow([ body.email, body.name, body.role, body.pin || '1234', body.active || 'TRUE' ]);
+  // Ở action này body.email là email của tài khoản MỚI (người gọi nằm ở authEmail)
+  var newEmail = String(body.email || '').trim();
+  if (!newEmail) return err('Vui lòng nhập email');
+  var role = body.role || 'TEACHER';
+  if (ROLES.indexOf(role) === -1) return err('Vai trò không hợp lệ: ' + role);
+  var t = readTable(SHEET.USERS);
+  if (t.rows.find(function(u){ return sameEmail(u.Email, newEmail); })) return err('Email đã tồn tại');
+  appendObjects(t, [{
+    Email:  newEmail,
+    Name:   body.name || newEmail.split('@')[0],
+    Role:   role,
+    Pin:    String(body.pin || '1234').trim(),
+    Active: body.active || 'TRUE',
+  }]);
   return ok('added');
+}
+
+/** Còn ít nhất một ADMIN đang hoạt động ngoài tài khoản `exceptEmail`? */
+function hasOtherActiveAdmin(t, exceptEmail) {
+  return t.rows.some(function(u) {
+    return u.Role === 'ADMIN' && u.Active === 'TRUE' && !sameEmail(u.Email, exceptEmail);
+  });
 }
 
 function editUser(body, email) {
   requireRole(email, ['ADMIN']);
-  var sheet = getSheet(SHEET.USERS);
-  var data  = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === body.targetEmail) {
-      sheet.getRange(i+1, 2).setValue(body.name   !== undefined ? body.name   : data[i][1]);
-      sheet.getRange(i+1, 3).setValue(body.role   !== undefined ? body.role   : data[i][2]);
-      sheet.getRange(i+1, 4).setValue(body.pin    !== undefined ? body.pin    : data[i][3]);
-      sheet.getRange(i+1, 5).setValue(body.active !== undefined ? body.active : data[i][4]);
-      return ok('updated');
-    }
+  var t   = readTable(SHEET.USERS);
+  var row = t.rows.find(function(u){ return sameEmail(u.Email, body.targetEmail); });
+  if (!row) return err('Không tìm thấy user ' + body.targetEmail);
+  if (body.role !== undefined && ROLES.indexOf(body.role) === -1) return err('Vai trò không hợp lệ: ' + body.role);
+
+  var losesAdmin = row.Role === 'ADMIN' && row.Active === 'TRUE' &&
+    ((body.role !== undefined && body.role !== 'ADMIN') || (body.active !== undefined && body.active !== 'TRUE'));
+  if (losesAdmin && !hasOtherActiveAdmin(t, row.Email)) {
+    return err('Phải còn ít nhất một quản trị viên đang hoạt động');
   }
-  return err('Không tìm thấy user ' + body.targetEmail);
+
+  updateRow(t, row._row, {
+    Name:   body.name,
+    Role:   body.role,
+    // Bỏ trống PIN khi sửa nghĩa là giữ PIN cũ
+    Pin:    (body.pin !== undefined && String(body.pin).trim() !== '') ? String(body.pin).trim() : undefined,
+    Active: body.active,
+  });
+  return ok('updated');
+}
+
+function deleteUser(body, email) {
+  requireRole(email, ['ADMIN']);
+  var target = String(body.targetEmail || '').trim();
+  if (!target) return err('Vui lòng cung cấp email tài khoản cần xóa');
+  if (sameEmail(target, email)) return err('Bạn không thể tự xóa tài khoản đang đăng nhập');
+  var t = readTable(SHEET.USERS);
+  var n = deleteRows(t, function(u){ return sameEmail(u.Email, target); });
+  if (!n) return err('Không tìm thấy tài khoản ' + target);
+  deleteRows(readTable(SHEET.TCH_CLASSES), function(x){ return sameEmail(x.TeacherEmail, target); });
+  return ok('deleted');
 }
 
 // ────────────────────────────────────────────────────────────
@@ -467,13 +600,13 @@ function editUser(body, email) {
 // ────────────────────────────────────────────────────────────
 function getDashboard(body, email) {
   requireRole(email, ['ADMIN']);
-  var users    = sheetToObjects(getSheet(SHEET.USERS));
-  var classes  = sheetToObjects(getSheet(SHEET.CLASSES));
-  var students = sheetToObjects(getSheet(SHEET.STUDENTS));
-  var att      = sheetToObjects(getSheet(SHEET.ATTENDANCE));
+  var users    = readTable(SHEET.USERS).rows;
+  var classes  = readTable(SHEET.CLASSES).rows;
+  var students = readTable(SHEET.STUDENTS).rows;
+  var att      = readTable(SHEET.ATTENDANCE).rows;
   var todayStr = today();
 
-  var attToday  = att.filter(function(a){ return a.Date === todayStr; });
+  var attToday     = att.filter(function(a){ return a.Date === todayStr; });
   var presentToday = attToday.filter(function(a){ return a.Present === 'TRUE'; }).length;
 
   return ok({
@@ -493,18 +626,16 @@ function getTuition(body, email) {
   requireAuth(email);
   var classId = body.classId;
 
-  var classes  = sheetToObjects(getSheet(SHEET.CLASSES));
-  var cls      = classes.find(function(c){ return c.ClassID === classId; });
+  var cls = clean(readTable(SHEET.CLASSES).rows).find(function(c){ return c.ClassID === classId; });
   if (!cls) return err('Không tìm thấy lớp');
 
-  var fee      = parseFloat(cls.FeePerSession) || 0;
-  var enrolls  = sheetToObjects(getSheet(SHEET.ENROLLMENTS))
+  var fee     = parseFloat(cls.FeePerSession) || 0;
+  var enrolls = readTable(SHEET.ENROLLMENTS).rows
     .filter(function(e){ return e.ClassID === classId && e.Status === 'ACTIVE'; });
-  var students = sheetToObjects(getSheet(SHEET.STUDENTS));
-  var stuMap   = {};
-  students.forEach(function(s){ stuMap[s.StudentID] = s; });
+  var stuMap  = {};
+  readTable(SHEET.STUDENTS).rows.forEach(function(s){ stuMap[s.StudentID] = s; });
 
-  var att = sheetToObjects(getSheet(SHEET.ATTENDANCE))
+  var att = readTable(SHEET.ATTENDANCE).rows
     .filter(function(a){ return a.ClassID === classId; });
 
   // Count distinct dates for sessionsTotal
@@ -536,18 +667,16 @@ function getTuition(body, email) {
 // ────────────────────────────────────────────────────────────
 function getStudentReport(body) {
   var studentId = body.studentId;
-  var students  = sheetToObjects(getSheet(SHEET.STUDENTS));
-  var student   = students.find(function(s){ return s.StudentID === studentId; });
+  var student   = clean(readTable(SHEET.STUDENTS).rows).find(function(s){ return s.StudentID === studentId; });
   if (!student) return err('Không tìm thấy học sinh');
 
-  var enrolls = sheetToObjects(getSheet(SHEET.ENROLLMENTS))
+  var enrolls = readTable(SHEET.ENROLLMENTS).rows
     .filter(function(e){ return e.StudentID === studentId && e.Status === 'ACTIVE'; });
-  var classes  = sheetToObjects(getSheet(SHEET.CLASSES));
-  var clsMap   = {};
-  classes.forEach(function(c){ clsMap[c.ClassID] = c; });
+  var clsMap  = {};
+  readTable(SHEET.CLASSES).rows.forEach(function(c){ clsMap[c.ClassID] = c; });
 
-  var allAtt    = sheetToObjects(getSheet(SHEET.ATTENDANCE));
-  var allScores = sheetToObjects(getSheet(SHEET.SCORES));
+  var allAtt    = clean(readTable(SHEET.ATTENDANCE).rows);
+  var allScores = clean(readTable(SHEET.SCORES).rows);
 
   var classData = enrolls.map(function(enr) {
     var cid = enr.ClassID;
@@ -581,17 +710,22 @@ function getStudentReport(body) {
 }
 
 // ────────────────────────────────────────────────────────────
-//  SETUP HELPER – chạy 1 lần để tạo sheet mẫu
+//  SETUP HELPER – chạy 1 lần để tạo sheet / bổ sung cột còn thiếu
 // ────────────────────────────────────────────────────────────
 function setupSheets() {
-  Object.values(SHEET).forEach(function(name) {
-    getSheet(name); // creates sheet + header row if missing
+  Object.keys(SHEET).forEach(function(k) {
+    getSheet(SHEET[k]); // creates sheet + header row, adds missing columns
   });
-  // Seed admin account
-  var userSheet = getSheet(SHEET.USERS);
-  var data = userSheet.getDataRange().getValues();
-  if (data.length < 2) {
-    userSheet.appendRow(['admin@example.com', 'Admin', 'ADMIN', '1234', 'TRUE']);
+  // Seed admin account (chỉ khi sheet Users còn trống)
+  var t = readTable(SHEET.USERS);
+  var msg = '✅ Đã kiểm tra và tạo đủ sheet/cột.';
+  if (t.rows.length === 0) {
+    appendObjects(t, [{ Email: 'admin@example.com', Name: 'Admin', Role: 'ADMIN', Pin: '1234', Active: 'TRUE' }]);
+    msg += '\n\nTài khoản mặc định:\nEmail: admin@example.com\nPIN: 1234\n\nHãy đổi PIN ngay sau khi đăng nhập!';
   }
-  SpreadsheetApp.getUi().alert('✅ Tạo sheet xong!\n\nTài khoản mặc định:\nEmail: admin@example.com\nPIN: 1234\n\nHãy đổi PIN ngay sau khi đăng nhập!');
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (e) {
+    Logger.log(msg);
+  }
 }
