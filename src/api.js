@@ -587,6 +587,21 @@ export async function api(action, data = {}, userEmail = '') {
     body: JSON.stringify(payload),
   });
   const json = await response.json();
-  if (!json.ok) throw new Error(json.error || 'Lỗi không xác định');
+  if (!json.ok) {
+    const message = json.error || 'Lỗi không xác định';
+    // Phiên đăng nhập không còn hợp lệ (tài khoản bị xóa/khóa, hoặc phiên cũ từ chế độ
+    // localStorage): báo cho AuthContext đăng xuất. Bỏ qua khi đang đăng nhập/trang công khai.
+    if (action !== 'login' && userEmail && AUTH_ERRORS.includes(message)) {
+      try {
+        window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+      } catch {}
+      throw new Error('Phiên đăng nhập không còn hợp lệ, vui lòng đăng nhập lại');
+    }
+    throw new Error(message);
+  }
   return json.data;
 }
+
+// Các lỗi do code.gs (requireAuth) trả về khi email đăng nhập không còn hợp lệ
+const AUTH_ERRORS = ['Chưa đăng nhập', 'Tài khoản không tồn tại hoặc đã bị khóa'];
+export const AUTH_EXPIRED_EVENT = 'nangmai:auth-expired';
