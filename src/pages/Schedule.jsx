@@ -2169,8 +2169,12 @@ export default function Schedule({ isPublicPage = false }) {
             {WEEKDAYS.map(w => {
               const checked = slotForm.days.includes(w.day);
               return (
-                <label
+                // Dùng <button> thay cho <label> bọc checkbox: bấm vào label làm trình duyệt
+                // tự bấm thêm checkbox bên trong, onClick chạy 2 lần nên chọn rồi bỏ chọn ngay.
+                <button
+                  type="button"
                   key={w.day}
+                  aria-pressed={checked}
                   className={`txt-day-check ${checked ? 'checked' : ''}`}
                   onClick={() => {
                     setSlotForm(f => {
@@ -2182,9 +2186,8 @@ export default function Schedule({ isPublicPage = false }) {
                     });
                   }}
                 >
-                  <input type="checkbox" checked={checked} readOnly style={{ display: 'none' }} />
                   {w.label}
-                </label>
+                </button>
               );
             })}
           </div>

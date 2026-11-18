@@ -1647,8 +1647,14 @@ body.txt-fullscreen-open {
   color: var(--text, #1f2937);
   font-weight: 700;
   font-size: 13px;
+  font-family: inherit;
+  line-height: inherit;
   cursor: pointer;
   user-select: none;
+}
+.txt-day-check:focus-visible {
+  outline: 2px solid var(--primary, #0d9488);
+  outline-offset: 2px;
 }
 .txt-day-check.checked {
   background: var(--gradient, linear-gradient(135deg, #0d9488 0%, #14b8a6 50%, #5eead4 100%));
