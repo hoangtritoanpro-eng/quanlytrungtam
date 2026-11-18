@@ -13,6 +13,9 @@ var SHEET = {
   ATTENDANCE:   'Attendance',
   SCORES:       'Scores',
   TCH_CLASSES:  'TeacherClasses',
+  SCH_SLOTS:    'ScheduleSlots',
+  SCH_SITES:    'ScheduleSites',
+  SCH_TEACHERS: 'ScheduleTeachers',
 };
 
 // ── Cột của từng sheet ─────────────────────────────────────
@@ -26,7 +29,16 @@ var COL = {
   ATTENDANCE:   ['Date','ClassID','StudentID','Present','Note','By'],
   SCORES:       ['Date','ClassID','ExamName','MaxScore','StudentID','Score','Note','By'],
   TCH_CLASSES:  ['TeacherEmail','ClassID'],
+  // Thời khóa biểu (trang Lịch học). Cột lạ do frontend gửi thêm sẽ tự được bổ sung.
+  SCH_SLOTS:    ['id','day','weekday','startMin','endMin','time','session','className','subject','grade','teacher',
+                 'siteId','siteName','modeKey','modeLabel','room','roomLocation','roomCapacity','capacity',
+                 'startDate','endDate','contact','color','notes'],
+  SCH_SITES:    ['id','name','address','phone','mapUrl','note'],
+  SCH_TEACHERS: ['name','role','subjects','qualification','experience','photo','phone','email','bio'],
 };
+
+// Đánh dấu thời khóa biểu đã từng được lưu lên Sheet (để phân biệt "chưa có gì" với "đã xóa hết")
+var SCHEDULE_INIT_PROP = 'SCHEDULE_INITIALIZED';
 
 var ROLES = ['ADMIN', 'TEACHER', 'TA'];
 
@@ -201,6 +213,7 @@ function doPost(e) {
 
     // Public actions (no auth needed)
     if (action === 'getStudentReport') return getStudentReport(body);
+    if (action === 'getSchedule')      return getSchedule();
 
     switch (action) {
       // ── Auth ──────────────────────────────────
@@ -246,6 +259,9 @@ function doPost(e) {
       // ── Dashboard / Tuition ───────────────────
       case 'getDashboard':    return getDashboard(body, email);
       case 'getTuition':      return getTuition(body, email);
+
+      // ── Thời khóa biểu ────────────────────────
+      case 'saveSchedule':    return saveSchedule(body, email);
 
       default: return err('Action không hợp lệ: ' + action);
     }
@@ -707,6 +723,77 @@ function getStudentReport(body) {
   });
 
   return ok({ student: student, classes: classData });
+}
+
+// ────────────────────────────────────────────────────────────
+//  THỜI KHÓA BIỂU (trang Lịch học)
+//  Đọc công khai (trang /lich-hoc không cần đăng nhập); chỉ ADMIN được lưu.
+//  Mỗi lần lưu ghi đè toàn bộ một bảng (ca học / cơ sở / giáo viên).
+// ────────────────────────────────────────────────────────────
+function getSchedule() {
+  var initialized = PropertiesService.getScriptProperties().getProperty(SCHEDULE_INIT_PROP) === 'TRUE';
+  return ok({
+    initialized:     initialized,
+    slots:           clean(readTable(SHEET.SCH_SLOTS).rows),
+    sites:           clean(readTable(SHEET.SCH_SITES).rows),
+    teacherProfiles: clean(readTable(SHEET.SCH_TEACHERS).rows),
+  });
+}
+
+/** Ghi đè toàn bộ dữ liệu một sheet bằng mảng object; thêm cột nếu object có trường mới. */
+function replaceTable(name, objs) {
+  var t = readTable(name);
+  var headers = t.headers.slice();
+  objs.forEach(function(o) {
+    Object.keys(o).forEach(function(k) {
+      if (k && k !== '_row' && headers.indexOf(k) === -1) headers.push(k);
+    });
+  });
+  if (headers.length > t.headers.length) {
+    t.sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  var lastRow = t.sheet.getLastRow();
+  if (lastRow > 1) {
+    t.sheet.getRange(2, 1, lastRow - 1, Math.max(t.sheet.getLastColumn(), headers.length)).clearContent();
+  }
+  if (!objs.length) return;
+  var data = objs.map(function(o) {
+    return headers.map(function(h) {
+      var v = h ? o[h] : '';
+      if (v === undefined || v === null) return '';
+      return typeof v === 'object' ? JSON.stringify(v) : String(v);
+    });
+  });
+  t.sheet.getRange(2, 1, data.length, headers.length).setNumberFormat('@').setValues(data);
+}
+
+function saveSchedule(body, email) {
+  requireRole(email, ['ADMIN']);
+  var saved = [];
+  if (Array.isArray(body.slots)) {
+    replaceTable(SHEET.SCH_SLOTS, body.slots);
+    saved.push('slots');
+  }
+  if (Array.isArray(body.sites)) {
+    replaceTable(SHEET.SCH_SITES, body.sites);
+    saved.push('sites');
+  }
+  if (body.teacherProfiles && typeof body.teacherProfiles === 'object') {
+    var list = Array.isArray(body.teacherProfiles)
+      ? body.teacherProfiles
+      : Object.keys(body.teacherProfiles).map(function(k) {
+          var p = body.teacherProfiles[k] || {};
+          var o = {};
+          Object.keys(p).forEach(function(f){ o[f] = p[f]; });
+          o.name = p.name || k;
+          return o;
+        });
+    replaceTable(SHEET.SCH_TEACHERS, list);
+    saved.push('teacherProfiles');
+  }
+  if (!saved.length) return err('Không có dữ liệu thời khóa biểu để lưu');
+  PropertiesService.getScriptProperties().setProperty(SCHEDULE_INIT_PROP, 'TRUE');
+  return ok({ saved: saved });
 }
 
 // ────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { api } from '../api';
+import { api, hasRemoteBackend } from '../api';
 import Modal from '../components/Modal';
 import {
   DEFAULT_SITES,
@@ -94,6 +94,29 @@ function getShortSiteLabel(siteName, siteId) {
   if (/co\s*so\s*3/i.test(norm(raw))) return 'CS3';
   if (raw.length > 10) return raw.slice(0, 10);
   return raw || 'CS';
+}
+
+// Google Sheet trả mọi ô về dạng chuỗi: đổi lại các trường số mà thời khóa biểu dùng để tính toán
+function normalizeSlots(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(s => s && s.id)
+    .map(s => ({
+      ...s,
+      day: Number(s.day) || 2,
+      startMin: Number(s.startMin) || 0,
+      endMin: Number(s.endMin) || 0,
+    }));
+}
+
+// Sheet lưu hồ sơ giáo viên dạng danh sách; trang Lịch học dùng dạng { tên: hồ sơ }
+function profilesToMap(list) {
+  if (list && !Array.isArray(list) && typeof list === 'object') return list;
+  const map = {};
+  (list || []).forEach(p => {
+    if (p && p.name) map[p.name] = p;
+  });
+  return map;
 }
 
 const EMPTY_SLOT_FORM = {
@@ -224,6 +247,98 @@ export default function Schedule({ isPublicPage = false }) {
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(teacherProfiles));
     } catch (e) {}
   }, [teacherProfiles]);
+
+  // ── Đồng bộ thời khóa biểu với Google Sheet ─────────────────────
+  // localStorage ở trên chỉ còn là bản nháp để hiện nhanh; khi có Apps Script thì Sheet là
+  // nguồn chính: tải về khi mở trang, admin sửa gì thì tự lưu lên (gộp các thay đổi liên tiếp).
+  const remote = hasRemoteBackend();
+  const [scheduleReady, setScheduleReady] = useState(!remote);
+  const [scheduleLoadError, setScheduleLoadError] = useState('');
+  const [saveStatus, setSaveStatus] = useState('idle'); // idle | pending | saving | error
+  const syncedRef = useRef({ slots: null, sites: null, teacherProfiles: null });
+  const saveTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!remote) return undefined;
+    let cancelled = false;
+    api('getSchedule', {}, '')
+      .then(data => {
+        if (cancelled) return;
+        if (!data || !data.initialized) {
+          // Sheet chưa từng có thời khóa biểu: giữ dữ liệu đang có trong trình duyệt này.
+          // Nếu là admin, bước lưu bên dưới sẽ tự đẩy nó lên Sheet lần đầu.
+          syncedRef.current = { slots: '', sites: '', teacherProfiles: '' };
+        } else {
+          const nextSlots = normalizeSlots(data.slots);
+          const nextSites = Array.isArray(data.sites) ? data.sites : [];
+          const nextProfiles = profilesToMap(data.teacherProfiles);
+          syncedRef.current = {
+            slots: JSON.stringify(nextSlots),
+            sites: JSON.stringify(nextSites),
+            teacherProfiles: JSON.stringify(nextProfiles),
+          };
+          setSlots(nextSlots);
+          setSites(nextSites);
+          setTeacherProfiles(nextProfiles);
+        }
+        setScheduleLoadError('');
+        setScheduleReady(true);
+      })
+      .catch(e => {
+        if (!cancelled) setScheduleLoadError(e.message || 'Lỗi kết nối');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [remote]);
+
+  useEffect(() => {
+    if (!remote || !scheduleReady || !isAdmin || !user?.email) return;
+    const current = {
+      slots: JSON.stringify(slots),
+      sites: JSON.stringify(sites),
+      teacherProfiles: JSON.stringify(teacherProfiles),
+    };
+    const changed = Object.keys(current).filter(k => current[k] !== syncedRef.current[k]);
+    if (changed.length === 0) return;
+
+    setSaveStatus('pending');
+    clearTimeout(saveTimerRef.current);
+    // Không hủy hẹn giờ khi rời trang, để thay đổi cuối cùng vẫn được gửi đi
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      const payload = {};
+      changed.forEach(k => {
+        payload[k] = JSON.parse(current[k]);
+      });
+      setSaveStatus('saving');
+      api('saveSchedule', payload, user.email)
+        .then(() => {
+          changed.forEach(k => {
+            syncedRef.current[k] = current[k];
+          });
+          setSaveStatus(saveTimerRef.current ? 'pending' : 'idle');
+        })
+        .catch(e => {
+          setSaveStatus('error');
+          toast('Chưa lưu được thời khóa biểu lên Google Sheet: ' + e.message, 'error');
+        });
+    }, 700);
+  }, [slots, sites, teacherProfiles, scheduleReady, isAdmin, remote, user, toast]);
+
+  // Cảnh báo khi đóng trang lúc thay đổi chưa kịp lưu lên Sheet
+  useEffect(() => {
+    if (saveStatus !== 'pending' && saveStatus !== 'saving') return undefined;
+    const warn = e => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveStatus]);
+
+  // Chỉ cho sửa khi đã tải xong dữ liệu từ Sheet, tránh ghi đè bằng bản cũ trong trình duyệt
+  const canEdit = isAdmin && scheduleReady;
 
   // Optionally load classes from backend if logged in
   useEffect(() => {
@@ -935,11 +1050,39 @@ export default function Schedule({ isPublicPage = false }) {
 
   const timetableContent = (
     <>
-      {isAdmin && (
+      {remote && !scheduleReady && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: '0.9rem',
+            background: scheduleLoadError ? '#fee2e2' : '#f0fdfa',
+            color: scheduleLoadError ? '#b91c1c' : '#0f766e',
+            border: `1px solid ${scheduleLoadError ? '#fecaca' : '#99f6e4'}`,
+          }}
+        >
+          {scheduleLoadError
+            ? `⚠️ Không tải được thời khóa biểu từ Google Sheet (${scheduleLoadError}). Tải lại trang để thử lại.`
+            : '⏳ Đang tải thời khóa biểu từ Google Sheet...'}
+        </div>
+      )}
+      {canEdit && (
         <div className="txt-admin-bar">
           <div className="txt-admin-bar-title">
             <span>☀️ Quản trị Thời khóa biểu Nắng Mai</span>
             <span className="badge badge-info">{slots.length} ca học</span>
+            {remote && (
+              <span
+                className={`badge ${saveStatus === 'error' ? 'badge-danger' : saveStatus === 'idle' ? 'badge-success' : 'badge-warning'}`}
+              >
+                {saveStatus === 'error'
+                  ? '⚠️ Chưa lưu được'
+                  : saveStatus === 'idle'
+                    ? '☁️ Đã lưu lên Sheet'
+                    : '⏳ Đang lưu...'}
+              </span>
+            )}
           </div>
           <div className="txt-admin-actions">
             <button type="button" className="btn btn-primary btn-sm" onClick={openAddSlotModal}>
@@ -1916,7 +2059,7 @@ export default function Schedule({ isPublicPage = false }) {
                       </div>
                     )}
 
-                    {isAdmin && (
+                    {canEdit && (
                       <div className="txt-modal-admin-actions">
                         <button
                           type="button"

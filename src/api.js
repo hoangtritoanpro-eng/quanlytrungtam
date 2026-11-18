@@ -478,6 +478,29 @@ function localApiHandler(action, body = {}, email = '') {
       throw new Error('Dữ liệu nhập vào không hợp lệ');
     }
 
+    case 'getSchedule': {
+      const read = (key, fallback) => {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw === null ? fallback : JSON.parse(raw);
+        } catch {
+          return fallback;
+        }
+      };
+      const slots = read('toanx_schedule_slots_v2', null);
+      return {
+        initialized: slots !== null,
+        slots: Array.isArray(slots) ? slots : [],
+        sites: read('toanx_schedule_sites_v2', []),
+        teacherProfiles: read('toanx_schedule_teachers_v2', {}),
+      };
+    }
+
+    case 'saveSchedule': {
+      // Chế độ chạy local: trang Lịch học đã tự ghi localStorage, không cần làm gì thêm
+      return { saved: [] };
+    }
+
     case 'getTuition': {
       const cls = db.classes.find(c => c.ClassID === body.classId);
       if (!cls) throw new Error('Không tìm thấy lớp');
@@ -564,14 +587,21 @@ function localApiHandler(action, body = {}, email = '') {
   }
 }
 
-export async function api(action, data = {}, userEmail = '') {
+function getBaseUrl() {
   let customGasUrl = '';
   try {
     if (typeof window !== 'undefined') {
       customGasUrl = localStorage.getItem('nangmai_gas_url') || '';
     }
   } catch {}
-  const baseUrl = ENV_GAS_URL || customGasUrl;
+  return ENV_GAS_URL || customGasUrl;
+}
+
+/** true khi dữ liệu được lưu trên Google Sheet (đã cấu hình Apps Script), false khi chạy localStorage. */
+export const hasRemoteBackend = () => Boolean(getBaseUrl());
+
+export async function api(action, data = {}, userEmail = '') {
+  const baseUrl = getBaseUrl();
 
   const payload = { action, authEmail: userEmail, email: userEmail, ...data };
 
