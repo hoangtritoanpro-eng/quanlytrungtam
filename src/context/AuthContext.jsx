@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { api, AUTH_EXPIRED_EVENT } from '../api';
+import { api, AUTH_EXPIRED_EVENT, clearApiCache } from '../api';
 
 const Ctx = createContext(null);
 
@@ -26,6 +26,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    clearApiCache();
     setUser(null);
     try {
       localStorage.removeItem('edu_user');

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api, today } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { downloadCsv } from '../helpers';
 
 export default function Grades() {
   const { user } = useAuth();
@@ -97,10 +98,57 @@ export default function Grades() {
 
   const selectedCls = classes.find(c => c.ClassID === selectedClass);
 
+  // Bảng điểm cả lớp: mỗi học sinh một dòng, mỗi bài kiểm tra một cột, thêm cột điểm trung bình (thang 10)
+  const exportExcel = async () => {
+    if (!selectedClass) {
+      toast('Chọn lớp trước', 'warning');
+      return;
+    }
+    try {
+      const scores = (await api('getScores', { classId: selectedClass }, user.email)) || [];
+      if (!scores.length) {
+        toast('Lớp này chưa có điểm nào', 'warning');
+        return;
+      }
+      const exams = [];
+      const examMax = {};
+      scores
+        .slice()
+        .sort((a, b) => String(a.Date).localeCompare(String(b.Date)))
+        .forEach(s => {
+          if (!exams.includes(s.ExamName)) {
+            exams.push(s.ExamName);
+            examMax[s.ExamName] = parseFloat(s.MaxScore) || 10;
+          }
+        });
+      const cell = {};
+      scores.forEach(s => {
+        cell[`${s.StudentID}|${s.ExamName}`] = s.Score;
+      });
+      const header = ['STT', 'Học sinh', ...exams.map(e => `${e} (/${examMax[e]})`), 'TB (thang 10)'];
+      const body = roster.map((s, i) => {
+        const vals = exams.map(e => cell[`${s.StudentID}|${e}`] ?? '');
+        const norm = exams
+          .map(e => parseFloat(cell[`${s.StudentID}|${e}`]) / examMax[e])
+          .filter(v => isFinite(v));
+        const avg = norm.length ? Math.round((norm.reduce((a, b) => a + b, 0) / norm.length) * 100) / 10 : '';
+        return [i + 1, s.FullName, ...vals, avg];
+      });
+      downloadCsv(`bang-diem_${selectedCls?.ClassName || selectedClass}`, [header, ...body]);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  };
+
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <h1><span>📝</span> Nhập Điểm</h1>
+        {selectedClass && (
+          <button className="btn btn-secondary btn-sm" onClick={exportExcel}>
+            📥 Xuất bảng điểm Excel
+          </button>
+        )}
       </div>
 
       <div className="card">

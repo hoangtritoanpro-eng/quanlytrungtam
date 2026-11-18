@@ -121,6 +121,7 @@ function profilesToMap(list) {
 
 const EMPTY_SLOT_FORM = {
   id: '',
+  classId: '',
   className: '',
   subject: 'Toán',
   grade: 'Khối 8',
@@ -821,6 +822,7 @@ export default function Schedule({ isPublicPage = false }) {
     setEditingSlotId(slot.id);
     setSlotForm({
       id: slot.id,
+      classId: slot.classId || '',
       className: slot.className || '',
       subject: slot.subject || 'Toán',
       grade: slot.grade || '',
@@ -859,6 +861,32 @@ export default function Schedule({ isPublicPage = false }) {
       return;
     }
 
+    // Cảnh báo trùng lịch: cùng ngày, giờ chồng nhau và cùng giáo viên hoặc cùng phòng ở cùng cơ sở
+    const teacherKey = norm(slotForm.teacher);
+    const roomKey = norm(slotForm.room);
+    const conflicts = [];
+    slotForm.days.forEach(d => {
+      slots.forEach(s => {
+        if (s.id === editingSlotId || Number(s.day) !== Number(d)) return;
+        if (!(Number(s.startMin) < endMin && startMin < Number(s.endMin))) return;
+        const sameTeacher = teacherKey && norm(s.teacher) === teacherKey;
+        const sameRoom = roomKey && norm(s.room) === roomKey && s.siteId === slotForm.siteId;
+        if (sameTeacher || sameRoom) {
+          conflicts.push(
+            `• ${getWeekdayLabel(d)} ${s.time}: ${s.className}` +
+              (sameTeacher ? ` (trùng giáo viên ${s.teacher})` : '') +
+              (sameRoom ? ` (trùng ${s.room})` : '')
+          );
+        }
+      });
+    });
+    if (
+      conflicts.length &&
+      !confirm(`Ca học này trùng lịch với:\n${conflicts.slice(0, 8).join('\n')}\n\nVẫn lưu?`)
+    ) {
+      return;
+    }
+
     const session = inferSession(startMin);
     const timeStr = `${timeLabel(startMin)}–${timeLabel(endMin)}`;
     const siteObj = siteMap[slotForm.siteId] || sites[0] || {};
@@ -883,6 +911,7 @@ export default function Schedule({ isPublicPage = false }) {
                 modeKey: slotForm.modeKey,
                 modeLabel: modeObj.label,
                 className: slotForm.className.trim(),
+        classId: slotForm.classId || '',
                 subject: slotForm.subject.trim() || 'Toán',
                 grade: slotForm.grade.trim(),
                 teacher: slotForm.teacher.trim(),
@@ -912,6 +941,7 @@ export default function Schedule({ isPublicPage = false }) {
             modeKey: slotForm.modeKey,
             modeLabel: modeObj.label,
             className: slotForm.className.trim(),
+        classId: slotForm.classId || '',
             subject: slotForm.subject.trim() || 'Toán',
             grade: slotForm.grade.trim(),
             teacher: slotForm.teacher.trim(),
@@ -943,6 +973,7 @@ export default function Schedule({ isPublicPage = false }) {
         modeKey: slotForm.modeKey,
         modeLabel: modeObj.label,
         className: slotForm.className.trim(),
+        classId: slotForm.classId || '',
         subject: slotForm.subject.trim() || 'Toán',
         grade: slotForm.grade.trim(),
         teacher: slotForm.teacher.trim(),
@@ -2196,18 +2227,25 @@ export default function Schedule({ isPublicPage = false }) {
           </>
         }
       >
-        {systemClasses.length > 0 && !editingSlotId && (
+        {systemClasses.length > 0 && (
           <div className="form-group">
-            <label className="form-label">Chọn nhanh từ lớp học trong hệ thống (tùy chọn)</label>
+            <label className="form-label">
+              Gắn với lớp trong hệ thống (để điểm danh, học phí và Dashboard biết ca này là lớp nào)
+            </label>
             <select
               className="form-select"
-              value=""
+              value={slotForm.classId || ''}
               onChange={e => {
                 const cls = systemClasses.find(c => c.ClassID === e.target.value);
+                if (!cls) {
+                  setSlotForm(f => ({ ...f, classId: '' }));
+                  return;
+                }
                 if (cls) {
                   setSlotForm(f => ({
                     ...f,
-                    className: cls.ClassName || f.className,
+                    classId: cls.ClassID,
+                    className: f.className.trim() ? f.className : cls.ClassName || '',
                     subject: cls.Subject || f.subject,
                     grade: cls.Grade
                       ? cls.Grade.toString().startsWith('Khối')
@@ -2218,7 +2256,7 @@ export default function Schedule({ isPublicPage = false }) {
                 }
               }}
             >
-              <option value="">-- Chọn lớp để tự động điền --</option>
+              <option value="">-- Không gắn lớp --</option>
               {systemClasses.map(c => (
                 <option key={c.ClassID} value={c.ClassID}>
                   {c.ClassName} ({c.Subject} - Khối {c.Grade})

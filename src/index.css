@@ -181,6 +181,55 @@ body {
 .stat-icon { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 2.4rem; opacity: 0.2; }
 .stat-value { font-size: 2rem; font-weight: 800; line-height: 1; }
 .stat-label { font-size: 0.82rem; opacity: 0.9; margin-top: 5px; }
+.stat-value-sm { font-size: 1.35rem; overflow-wrap: anywhere; }
+/* Thẻ thống kê bấm được (Dashboard) */
+.stat-card-link { border: none; text-align: left; font-family: inherit; cursor: pointer; width: 100%; }
+.stat-card-link:focus-visible { outline: 3px solid var(--primary-dark); outline-offset: 2px; }
+
+/* ═══ DASHBOARD ═══ */
+.dash-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+.dash-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.dash-row:last-child { border-bottom: none; }
+.dash-pill { font-size: 0.76rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.dash-progress { height: 10px; background: var(--bg-light); border-radius: 999px; overflow: hidden; }
+.dash-progress > div { height: 100%; background: var(--gradient); border-radius: 999px; transition: width 0.4s; }
+@media (max-width: 1000px) { .dash-grid { grid-template-columns: 1fr; } }
+
+/* ═══ TÌM NHANH (Ctrl+K) ═══ */
+.search-palette {
+  background: #fff; width: min(600px, calc(100vw - 32px)); margin: 10vh auto 0;
+  border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,0.25); overflow: hidden;
+  align-self: flex-start;
+}
+.search-palette-input {
+  width: 100%; border: none; border-bottom: 2px solid var(--border); padding: 16px 18px;
+  font-family: inherit; font-size: 1rem; outline: none; color: var(--text);
+}
+.search-palette-list { max-height: 55vh; overflow-y: auto; padding: 6px; }
+.search-palette-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px;
+  background: none; border: none; border-radius: var(--radius-sm); text-align: left;
+  cursor: pointer; font-family: inherit; color: var(--text);
+}
+.search-palette-item.active { background: var(--primary-light); }
+.search-palette-icon { font-size: 1.2rem; width: 28px; text-align: center; flex-shrink: 0; }
+.search-palette-title { display: block; font-weight: 700; font-size: 0.92rem; }
+.search-palette-sub {
+  display: block; font-size: 0.78rem; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.search-palette-empty { padding: 20px; text-align: center; color: var(--text-muted); }
+.search-palette-hint { padding: 8px 14px; font-size: 0.75rem; color: var(--text-muted); background: var(--bg-light); }
+.sidebar-search {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 10px 12px 0; padding: 8px 12px; width: calc(100% - 24px);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff;
+  color: var(--text-muted); font-family: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.sidebar-search kbd {
+  font-family: inherit; font-size: 0.7rem; background: var(--bg-light);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+}
 
 /* ═══ BUTTONS ═══ */
 .btn {
@@ -326,6 +375,17 @@ td.actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; 
 .att-row.header { background: var(--gradient); color: white; font-weight: 700; font-size: 0.83rem; }
 .att-cell { padding: 10px 14px; }
 .att-check { display: flex; align-items: center; justify-content: center; gap: 6px; }
+/* Cả ô tên là nút bấm lớn để điểm danh nhanh trên điện thoại */
+.att-name-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px;
+  background: none; border: none; text-align: left; cursor: pointer;
+  font-family: inherit; color: var(--text);
+}
+.att-name-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.att-absent-tag {
+  background: #fee2e2; color: #dc2626; font-size: 0.72rem; font-weight: 700;
+  padding: 1px 8px; border-radius: 6px;
+}
 
 /* ═══ PARENT VIEW ═══ */
 .parent-page { max-width: 780px; margin: 0 auto; padding: 20px; }

@@ -35,8 +35,17 @@ function getInitialDb() {
     teacherClasses: [],
     attendance: [],
     scores: [],
+    payments: [],
   };
 }
+
+/** Thứ trong tuần theo cách đánh số của trang Lịch học: Thứ 2 = 2 ... Chủ nhật = 8. */
+export function scheduleWeekday(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+  return d === 0 ? 8 : d + 1;
+}
+
+export const thisMonth = () => today().slice(0, 7);
 
 function loadDb() {
   try {
@@ -114,6 +123,7 @@ function nextId(prefix, list, key) {
 
 function localApiHandler(action, body = {}, email = '') {
   const db = loadDb();
+  if (!Array.isArray(db.payments)) db.payments = [];
 
   switch (action) {
     case 'login': {
@@ -149,9 +159,87 @@ function localApiHandler(action, body = {}, email = '') {
     }
 
     case 'getDashboard': {
+      // Cùng cách tính với getDashboard trong code.gs
       const td = today();
+      const month = td.slice(0, 7);
       const attToday = db.attendance.filter(a => a.Date === td);
       const presentToday = attToday.filter(a => a.Present === 'TRUE').length;
+      const clsMap = Object.fromEntries(db.classes.map(c => [c.ClassID, c]));
+      const stuMap = Object.fromEntries(db.students.map(s => [s.StudentID, s]));
+      const enrolls = db.enrollments.filter(e => e.Status === 'ACTIVE');
+      let slots = [];
+      try {
+        slots = JSON.parse(localStorage.getItem('toanx_schedule_slots_v2') || '[]');
+      } catch {}
+
+      const weekday = scheduleWeekday(td);
+      const todaySlots = (Array.isArray(slots) ? slots : [])
+        .filter(s => Number(s.day) === weekday)
+        .map(s => {
+          const cid = s.classId && clsMap[s.classId] ? s.classId : '';
+          const recs = cid ? attToday.filter(a => a.ClassID === cid) : [];
+          return {
+            id: s.id,
+            time: s.time,
+            startMin: Number(s.startMin) || 0,
+            endMin: Number(s.endMin) || 0,
+            className: s.className,
+            classId: cid,
+            teacher: s.teacher,
+            room: s.room,
+            siteName: s.siteName,
+            marked: recs.length > 0,
+            present: recs.filter(a => a.Present === 'TRUE').length,
+            total: recs.length,
+            enrolled: cid ? enrolls.filter(e => e.ClassID === cid).length : 0,
+          };
+        })
+        .sort((a, b) => a.startMin - b.startMin);
+
+      const byPair = {};
+      db.attendance.forEach(a => {
+        (byPair[`${a.ClassID}|${a.StudentID}`] ||= []).push(a);
+      });
+      const absenceAlerts = [];
+      enrolls.forEach(e => {
+        const list = (byPair[`${e.ClassID}|${e.StudentID}`] || [])
+          .slice()
+          .sort((a, b) => b.Date.localeCompare(a.Date));
+        let streak = 0;
+        while (streak < list.length && list[streak].Present === 'FALSE') streak++;
+        if (streak >= 2) {
+          const st = stuMap[e.StudentID] || {};
+          absenceAlerts.push({
+            studentId: e.StudentID,
+            fullName: st.FullName || e.StudentID,
+            parentName: st.ParentName || '',
+            parentPhone: st.ParentPhone || '',
+            classId: e.ClassID,
+            className: clsMap[e.ClassID]?.ClassName || e.ClassID,
+            streak,
+            lastDate: list[0].Date,
+          });
+        }
+      });
+      absenceAlerts.sort((a, b) => b.streak - a.streak || b.lastDate.localeCompare(a.lastDate));
+
+      const monthPays = db.payments.filter(p => p.Month === month);
+      const paidKey = new Set(monthPays.map(p => `${p.ClassID}|${p.StudentID}`));
+      let due = 0;
+      let unpaidAmount = 0;
+      let unpaidCount = 0;
+      enrolls.forEach(e => {
+        const fee = parseFloat(clsMap[e.ClassID]?.FeePerSession) || 0;
+        const attended = (byPair[`${e.ClassID}|${e.StudentID}`] || []).filter(
+          a => a.Present === 'TRUE' && a.Date.slice(0, 7) === month
+        ).length;
+        due += attended * fee;
+        if (attended * fee > 0 && !paidKey.has(`${e.ClassID}|${e.StudentID}`)) {
+          unpaidAmount += attended * fee;
+          unpaidCount++;
+        }
+      });
+
       return {
         totalStudents: db.students.filter(s => s.Status === 'ACTIVE').length,
         totalClasses: db.classes.filter(c => c.Status === 'ACTIVE').length,
@@ -159,7 +247,57 @@ function localApiHandler(action, body = {}, email = '') {
         totalTAs: db.users.filter(u => u.Role === 'TA' && u.Active === 'TRUE').length,
         presentToday,
         totalAttToday: attToday.length,
+        today: td,
+        month,
+        todaySlots,
+        absenceAlerts: absenceAlerts.slice(0, 30),
+        tuitionMonth: {
+          due,
+          paid: monthPays.reduce((s, p) => s + (parseFloat(p.Amount) || 0), 0),
+          unpaidAmount,
+          unpaidCount,
+        },
       };
+    }
+
+    case 'markPaid': {
+      const month = String(body.month || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(month) || !body.classId || !body.studentId) {
+        throw new Error('Thiếu tháng, lớp hoặc học sinh');
+      }
+      const amount = Number(body.amount);
+      if (!isFinite(amount) || amount < 0) throw new Error('Số tiền không hợp lệ');
+      const rec = {
+        Month: month,
+        ClassID: body.classId,
+        StudentID: body.studentId,
+        Amount: String(amount),
+        PaidDate: body.paidDate || today(),
+        Method: body.method || 'Tiền mặt',
+        Note: body.note || '',
+        By: email,
+      };
+      db.payments = db.payments.filter(
+        p => !(p.Month === month && p.ClassID === body.classId && p.StudentID === body.studentId)
+      );
+      db.payments.push(rec);
+      saveDb(db);
+      return rec;
+    }
+
+    case 'unmarkPaid': {
+      const month = String(body.month || '').slice(0, 7);
+      const before = db.payments.length;
+      db.payments = db.payments.filter(
+        p => !(p.Month === month && p.ClassID === body.classId && p.StudentID === body.studentId)
+      );
+      if (db.payments.length === before) throw new Error('Không tìm thấy phiếu thu');
+      saveDb(db);
+      return 'removed';
+    }
+
+    case 'getSystemInfo': {
+      return { spreadsheetUrl: '', spreadsheetName: '' };
     }
 
     case 'getClasses': {
@@ -512,12 +650,23 @@ function localApiHandler(action, body = {}, email = '') {
       db.students.forEach(s => {
         stuMap[s.StudentID] = s;
       });
-      const att = db.attendance.filter(a => a.ClassID === body.classId);
+      const month = /^\d{4}-\d{2}/.test(String(body.month || '')) ? String(body.month).slice(0, 7) : '';
+      const att = db.attendance.filter(
+        a => a.ClassID === body.classId && (!month || a.Date.slice(0, 7) === month)
+      );
       const dates = {};
       att.forEach(a => {
         dates[a.Date] = true;
       });
       const sessionsTotal = Object.keys(dates).length;
+      const payMap = {};
+      if (month) {
+        db.payments
+          .filter(p => p.ClassID === body.classId && p.Month === month)
+          .forEach(p => {
+            payMap[p.StudentID] = p;
+          });
+      }
 
       const result = enrolls.map(enr => {
         const sid = enr.StudentID;
@@ -532,9 +681,12 @@ function localApiHandler(action, body = {}, email = '') {
           sessionsAbsent: absent,
           feePerSession: fee,
           tuition: attended * fee,
+          parentName: stuMap[sid]?.ParentName || '',
+          parentPhone: stuMap[sid]?.ParentPhone || '',
+          payment: payMap[sid] || null,
         };
       });
-      return { classInfo: cls, students: result };
+      return { classInfo: cls, month, students: result };
     }
 
     case 'getStudentReport': {
@@ -600,6 +752,21 @@ function getBaseUrl() {
 /** true khi dữ liệu được lưu trên Google Sheet (đã cấu hình Apps Script), false khi chạy localStorage. */
 export const hasRemoteBackend = () => Boolean(getBaseUrl());
 
+// ── Bộ nhớ đệm phía trình duyệt ──────────────────────────────────
+// Mỗi lần gọi Apps Script mất 1–3 giây. Các danh sách ít thay đổi được giữ lại một lúc để
+// chuyển trang không phải chờ; mọi thao tác ghi (thêm/sửa/xóa/điểm danh...) xóa sạch bộ đệm.
+const CACHEABLE = new Set(['getClasses', 'getStudents', 'getTeachers', 'getUsers', 'getClassRoster', 'getClassTeachers']);
+const READ_ONLY = new Set([
+  ...CACHEABLE,
+  'getSchedule', 'getDashboard', 'getTuition', 'getAttendance', 'getScores', 'getStudentReport', 'getSystemInfo', 'login',
+]);
+const CACHE_TTL_MS = 60 * 1000;
+const responseCache = new Map(); // key -> { at, promise }
+
+export function clearApiCache() {
+  responseCache.clear();
+}
+
 export async function api(action, data = {}, userEmail = '') {
   const baseUrl = getBaseUrl();
 
@@ -610,6 +777,22 @@ export async function api(action, data = {}, userEmail = '') {
     return localApiHandler(action, payload, userEmail);
   }
 
+  if (!READ_ONLY.has(action)) clearApiCache();
+  if (!CACHEABLE.has(action)) return remoteCall(baseUrl, action, payload, userEmail);
+
+  const key = `${userEmail}|${action}|${JSON.stringify(data)}`;
+  const hit = responseCache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.promise;
+  // Lưu cả promise đang chạy để các trang gọi cùng lúc dùng chung một yêu cầu
+  const promise = remoteCall(baseUrl, action, payload, userEmail);
+  responseCache.set(key, { at: Date.now(), promise });
+  promise.catch(() => {
+    if (responseCache.get(key)?.promise === promise) responseCache.delete(key);
+  });
+  return promise;
+}
+
+async function remoteCall(baseUrl, action, payload, userEmail) {
   const response = await fetch(baseUrl, {
     method: 'POST',
     redirect: 'follow',

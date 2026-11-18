@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { api, hasRemoteBackend } from '../api';
 import Modal from './Modal';
+import SearchPalette from './SearchPalette';
 
 const NAV = {
   ADMIN: [
@@ -39,6 +41,29 @@ export default function Layout() {
   const [open, setOpen] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [importJson, setImportJson] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sheetInfo, setSheetInfo] = useState(null);
+  const remote = hasRemoteBackend();
+
+  // Ctrl+K (hoặc Cmd+K trên Mac) để mở ô tìm nhanh từ bất kỳ trang nào
+  useEffect(() => {
+    const onKey = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    if (showSyncModal && remote && user?.role === 'ADMIN' && !sheetInfo) {
+      api('getSystemInfo', {}, user.email)
+        .then(setSheetInfo)
+        .catch(() => setSheetInfo({ spreadsheetUrl: '' }));
+    }
+  }, [showSyncModal]);
 
   if (!user) {
     if (location.pathname === '/schedule') {
@@ -177,6 +202,17 @@ export default function Layout() {
         <h2>🎓 Quản lý Trung tâm</h2>
         <p>Hệ thống quản lý học tập</p>
       </div>
+      <button
+        type="button"
+        className="sidebar-search"
+        onClick={() => {
+          setOpen(false);
+          setSearchOpen(true);
+        }}
+      >
+        <span>🔍 Tìm nhanh...</span>
+        <kbd>Ctrl K</kbd>
+      </button>
       <nav className="sidebar-nav">
         <div className="nav-section">Menu chính</div>
         {items.map(item => (
@@ -212,7 +248,7 @@ export default function Layout() {
             }}
             onClick={() => setShowSyncModal(true)}
           >
-            💾 Đồng bộ / Sao lưu
+            💾 {remote ? 'Dữ liệu & Sao lưu' : 'Đồng bộ / Sao lưu'}
           </button>
         )}
         <button
@@ -238,10 +274,14 @@ export default function Layout() {
             ☰
           </button>
           <span style={{ fontWeight: 700, fontSize: '1rem', color: 'white' }}>🎓 Trung tâm</span>
-          <div />
+          <button className="menu-btn" onClick={() => setSearchOpen(true)} aria-label="Tìm nhanh">
+            🔍
+          </button>
         </div>
         <Outlet />
       </main>
+
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} user={user} pages={items} />
 
       {/* Modal Đồng bộ & Sao lưu Dữ liệu */}
       <Modal
@@ -250,6 +290,46 @@ export default function Layout() {
         title="💾 Quản lý & Đồng bộ Dữ liệu"
         size="modal-lg"
       >
+        {remote ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div
+              style={{
+                padding: '12px 16px',
+                background: '#f0fdfa',
+                borderRadius: '8px',
+                border: '1px solid #99f6e4',
+                fontSize: '0.9rem',
+                color: '#0f766e',
+              }}
+            >
+              <strong>☁️ Dữ liệu đang lưu trên Google Sheet.</strong> Mọi máy tính và điện thoại đăng nhập
+              đều dùng chung một dữ liệu, không cần sao chép qua lại nữa.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {sheetInfo === null ? (
+                <span style={{ color: 'var(--text-muted)' }}>Đang lấy link Google Sheet...</span>
+              ) : sheetInfo.spreadsheetUrl ? (
+                <a className="btn btn-primary" href={sheetInfo.spreadsheetUrl} target="_blank" rel="noreferrer">
+                  📊 Mở Google Sheet{sheetInfo.spreadsheetName ? ` "${sheetInfo.spreadsheetName}"` : ''}
+                </a>
+              ) : (
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Không lấy được link. Hãy cập nhật Apps Script lên phiên bản mới nhất.
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
+              <strong>Sao lưu định kỳ:</strong> trong Google Sheet chọn <em>Tệp → Tạo bản sao</em> (lưu thêm
+              một bản), hoặc <em>Tệp → Tải xuống → Microsoft Excel</em> để lưu về máy. Google Sheet cũng tự giữ
+              lịch sử phiên bản tại <em>Tệp → Nhật ký phiên bản</em>.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowSyncModal(false)}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div
             style={{
@@ -311,6 +391,7 @@ export default function Layout() {
             </button>
           </div>
         </div>
+        )}
       </Modal>
     </div>
   );

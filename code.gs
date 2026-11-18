@@ -16,6 +16,7 @@ var SHEET = {
   SCH_SLOTS:    'ScheduleSlots',
   SCH_SITES:    'ScheduleSites',
   SCH_TEACHERS: 'ScheduleTeachers',
+  PAYMENTS:     'Payments',
 };
 
 // ── Cột của từng sheet ─────────────────────────────────────
@@ -30,11 +31,13 @@ var COL = {
   SCORES:       ['Date','ClassID','ExamName','MaxScore','StudentID','Score','Note','By'],
   TCH_CLASSES:  ['TeacherEmail','ClassID'],
   // Thời khóa biểu (trang Lịch học). Cột lạ do frontend gửi thêm sẽ tự được bổ sung.
-  SCH_SLOTS:    ['id','day','weekday','startMin','endMin','time','session','className','subject','grade','teacher',
+  SCH_SLOTS:    ['id','classId','day','weekday','startMin','endMin','time','session','className','subject','grade','teacher',
                  'siteId','siteName','modeKey','modeLabel','room','roomLocation','roomCapacity','capacity',
                  'startDate','endDate','contact','color','notes'],
   SCH_SITES:    ['id','name','address','phone','mapUrl','note'],
   SCH_TEACHERS: ['name','role','subjects','qualification','experience','photo','phone','email','bio'],
+  // Thu học phí: mỗi dòng = 1 học sinh đã đóng tiền 1 lớp trong 1 tháng (Month dạng yyyy-MM)
+  PAYMENTS:     ['Month','ClassID','StudentID','Amount','PaidDate','Method','Note','By'],
 };
 
 // Đánh dấu thời khóa biểu đã từng được lưu lên Sheet (để phân biệt "chưa có gì" với "đã xóa hết")
@@ -87,7 +90,16 @@ function cellStr(v) {
  * Đọc toàn bộ sheet.
  * Trả về { sheet, headers, idx: {tênCột: chỉSố}, rows: [{...cột, _row: sốDòngTrênSheet}] }
  */
+// Bộ nhớ đệm trong MỘT lần gọi: nhiều hàm đọc cùng một sheet chỉ phải tải từ Sheets một lần.
+// Mọi thao tác ghi đều xóa bộ đệm của sheet đó (invalidate), và doPost xóa sạch ở đầu mỗi lần gọi.
+var _tableCache = {};
+
+function invalidate(name) {
+  delete _tableCache[name];
+}
+
 function readTable(name) {
+  if (_tableCache[name]) return _tableCache[name];
   var sheet  = getSheet(name);
   var values = sheet.getDataRange().getValues();
   var headers = (values[0] || []).map(function(h){ return String(h).trim(); });
@@ -104,7 +116,9 @@ function readTable(name) {
     });
     if (!empty) rows.push(obj);
   }
-  return { sheet: sheet, headers: headers, idx: idx, rows: rows };
+  var t = { name: name, sheet: sheet, headers: headers, idx: idx, rows: rows };
+  _tableCache[name] = t;
+  return t;
 }
 
 /** Bỏ trường nội bộ _row trước khi trả về cho client. */
@@ -124,6 +138,7 @@ function sheetToObjects(sheet) {
 /** Thêm nhiều dòng (mảng object theo tên cột). Ghi dạng văn bản để giữ số 0 đầu, ngày, TRUE/FALSE. */
 function appendObjects(t, objs) {
   if (!objs.length) return;
+  invalidate(t.name);
   var data = objs.map(function(o) {
     return t.headers.map(function(h) {
       return (h && o[h] !== undefined && o[h] !== null) ? String(o[h]) : '';
@@ -137,6 +152,7 @@ function appendObjects(t, objs) {
 
 /** Cập nhật một số cột của một dòng theo tên cột. */
 function updateRow(t, rowNumber, changes) {
+  invalidate(t.name);
   Object.keys(changes).forEach(function(k) {
     if (changes[k] === undefined || t.idx[k] === undefined) return;
     t.sheet.getRange(rowNumber, t.idx[k] + 1)
@@ -147,6 +163,7 @@ function updateRow(t, rowNumber, changes) {
 
 /** Xóa các dòng thỏa điều kiện. Trả về số dòng đã xóa. */
 function deleteRows(t, pred) {
+  invalidate(t.name);
   var targets = t.rows.filter(pred).map(function(r){ return r._row; });
   targets.sort(function(a, b){ return b - a; });   // xóa từ dưới lên để không lệch số dòng
   targets.forEach(function(n){ t.sheet.deleteRow(n); });
@@ -205,6 +222,8 @@ function doPost(e) {
     return err('Hệ thống đang bận, vui lòng thử lại sau giây lát');
   }
   try {
+    _tableCache = {};
+    _sheetCache = {};
     var body   = JSON.parse(e.postData.contents);
     var action = body.action;
     // Frontend gửi email người đang đăng nhập ở authEmail. Trường `email` có thể bị
@@ -260,8 +279,15 @@ function doPost(e) {
       case 'getDashboard':    return getDashboard(body, email);
       case 'getTuition':      return getTuition(body, email);
 
+      // ── Thu học phí ───────────────────────────
+      case 'markPaid':        return markPaid(body, email);
+      case 'unmarkPaid':      return unmarkPaid(body, email);
+
       // ── Thời khóa biểu ────────────────────────
       case 'saveSchedule':    return saveSchedule(body, email);
+
+      // ── Hệ thống ──────────────────────────────
+      case 'getSystemInfo':   return getSystemInfo(body, email);
 
       default: return err('Action không hợp lệ: ' + action);
     }
@@ -614,16 +640,103 @@ function deleteUser(body, email) {
 // ────────────────────────────────────────────────────────────
 //  DASHBOARD
 // ────────────────────────────────────────────────────────────
+/** Thứ trong tuần theo cách đánh số của trang Lịch học: Thứ 2 = 2 ... Thứ 7 = 7, Chủ nhật = 8. */
+function scheduleWeekday(dateStr) {
+  var d = new Date(dateStr + 'T00:00:00Z').getUTCDay();   // 0 = Chủ nhật
+  return d === 0 ? 8 : d + 1;
+}
+
 function getDashboard(body, email) {
   requireRole(email, ['ADMIN']);
   var users    = readTable(SHEET.USERS).rows;
   var classes  = readTable(SHEET.CLASSES).rows;
   var students = readTable(SHEET.STUDENTS).rows;
   var att      = readTable(SHEET.ATTENDANCE).rows;
+  var enrolls  = readTable(SHEET.ENROLLMENTS).rows.filter(function(e){ return e.Status === 'ACTIVE'; });
+  var payments = readTable(SHEET.PAYMENTS).rows;
+  var slots    = readTable(SHEET.SCH_SLOTS).rows;
   var todayStr = today();
+  var month    = todayStr.slice(0, 7);
+
+  var clsMap = {};
+  classes.forEach(function(c){ clsMap[c.ClassID] = c; });
+  var stuMap = {};
+  students.forEach(function(s){ stuMap[s.StudentID] = s; });
 
   var attToday     = att.filter(function(a){ return a.Date === todayStr; });
   var presentToday = attToday.filter(function(a){ return a.Present === 'TRUE'; }).length;
+
+  // ── Ca học hôm nay (từ thời khóa biểu) + đã điểm danh chưa ──
+  var weekday = scheduleWeekday(todayStr);
+  var todaySlots = slots
+    .filter(function(s){ return Number(s.day) === weekday; })
+    .map(function(s) {
+      var cid  = s.classId && clsMap[s.classId] ? s.classId : '';
+      var recs = cid ? attToday.filter(function(a){ return a.ClassID === cid; }) : [];
+      return {
+        id:        s.id,
+        time:      s.time,
+        startMin:  Number(s.startMin) || 0,
+        endMin:    Number(s.endMin) || 0,
+        className: s.className,
+        classId:   cid,
+        teacher:   s.teacher,
+        room:      s.room,
+        siteName:  s.siteName,
+        marked:    recs.length > 0,
+        present:   recs.filter(function(a){ return a.Present === 'TRUE'; }).length,
+        total:     recs.length,
+        enrolled:  cid ? enrolls.filter(function(e){ return e.ClassID === cid; }).length : 0,
+      };
+    })
+    .sort(function(a, b){ return a.startMin - b.startMin; });
+
+  // ── Học sinh vắng liên tiếp (tính từ buổi gần nhất trở về trước) ──
+  var byPair = {};
+  att.forEach(function(a) {
+    var k = a.ClassID + '|' + a.StudentID;
+    (byPair[k] = byPair[k] || []).push(a);
+  });
+  var absenceAlerts = [];
+  enrolls.forEach(function(e) {
+    var list = (byPair[e.ClassID + '|' + e.StudentID] || [])
+      .slice().sort(function(a, b){ return b.Date.localeCompare(a.Date); });
+    var streak = 0;
+    for (var i = 0; i < list.length && list[i].Present === 'FALSE'; i++) streak++;
+    if (streak >= 2) {
+      var st = stuMap[e.StudentID] || {};
+      absenceAlerts.push({
+        studentId:   e.StudentID,
+        fullName:    st.FullName || e.StudentID,
+        parentName:  st.ParentName || '',
+        parentPhone: st.ParentPhone || '',
+        classId:     e.ClassID,
+        className:   clsMap[e.ClassID] ? clsMap[e.ClassID].ClassName : e.ClassID,
+        streak:      streak,
+        lastDate:    list[0].Date,
+      });
+    }
+  });
+  absenceAlerts.sort(function(a, b){ return b.streak - a.streak || b.lastDate.localeCompare(a.lastDate); });
+
+  // ── Học phí tháng này: phải thu / đã thu / còn nợ ──
+  var monthPays = payments.filter(function(p){ return p.Month === month; });
+  var paidKey = {};
+  monthPays.forEach(function(p){ paidKey[p.ClassID + '|' + p.StudentID] = true; });
+  var dueTotal = 0, unpaidAmount = 0, unpaidCount = 0;
+  enrolls.forEach(function(e) {
+    var fee = parseFloat((clsMap[e.ClassID] || {}).FeePerSession) || 0;
+    var attended = (byPair[e.ClassID + '|' + e.StudentID] || []).filter(function(a) {
+      return a.Present === 'TRUE' && a.Date.slice(0, 7) === month;
+    }).length;
+    var due = attended * fee;
+    dueTotal += due;
+    if (due > 0 && !paidKey[e.ClassID + '|' + e.StudentID]) {
+      unpaidAmount += due;
+      unpaidCount++;
+    }
+  });
+  var paidTotal = monthPays.reduce(function(s, p){ return s + (parseFloat(p.Amount) || 0); }, 0);
 
   return ok({
     totalStudents:  students.filter(function(s){ return s.Status === 'ACTIVE'; }).length,
@@ -632,6 +745,11 @@ function getDashboard(body, email) {
     totalTAs:       users.filter(function(u){ return u.Role === 'TA'      && u.Active === 'TRUE'; }).length,
     presentToday:   presentToday,
     totalAttToday:  attToday.length,
+    today:          todayStr,
+    month:          month,
+    todaySlots:     todaySlots,
+    absenceAlerts:  absenceAlerts.slice(0, 30),
+    tuitionMonth:   { due: dueTotal, paid: paidTotal, unpaidAmount: unpaidAmount, unpaidCount: unpaidCount },
   });
 }
 
@@ -641,6 +759,8 @@ function getDashboard(body, email) {
 function getTuition(body, email) {
   requireAuth(email);
   var classId = body.classId;
+  // month = 'yyyy-MM' → chỉ tính các buổi trong tháng đó và kèm trạng thái đã đóng tiền
+  var month = /^\d{4}-\d{2}/.test(String(body.month || '')) ? String(body.month).slice(0, 7) : '';
 
   var cls = clean(readTable(SHEET.CLASSES).rows).find(function(c){ return c.ClassID === classId; });
   if (!cls) return err('Không tìm thấy lớp');
@@ -652,7 +772,14 @@ function getTuition(body, email) {
   readTable(SHEET.STUDENTS).rows.forEach(function(s){ stuMap[s.StudentID] = s; });
 
   var att = readTable(SHEET.ATTENDANCE).rows
-    .filter(function(a){ return a.ClassID === classId; });
+    .filter(function(a){ return a.ClassID === classId && (!month || a.Date.slice(0, 7) === month); });
+
+  var payMap = {};
+  if (month) {
+    clean(readTable(SHEET.PAYMENTS).rows).forEach(function(p) {
+      if (p.ClassID === classId && p.Month === month) payMap[p.StudentID] = p;
+    });
+  }
 
   // Count distinct dates for sessionsTotal
   var dates = {};
@@ -672,10 +799,63 @@ function getTuition(body, email) {
       sessionsAbsent:   absent,
       feePerSession:    fee,
       tuition:          attended * fee,
+      parentName:       stuMap[sid] ? stuMap[sid].ParentName  : '',
+      parentPhone:      stuMap[sid] ? stuMap[sid].ParentPhone : '',
+      payment:          payMap[sid] || null,
     };
   });
 
-  return ok({ classInfo: cls, students: result });
+  return ok({ classInfo: cls, month: month, students: result });
+}
+
+// ────────────────────────────────────────────────────────────
+//  THU HỌC PHÍ (chỉ ADMIN)
+// ────────────────────────────────────────────────────────────
+function markPaid(body, email) {
+  var u = requireRole(email, ['ADMIN']);
+  var month = String(body.month || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month) || !body.classId || !body.studentId) {
+    return err('Thiếu tháng, lớp hoặc học sinh');
+  }
+  var amount = Number(body.amount);
+  if (!isFinite(amount) || amount < 0) return err('Số tiền không hợp lệ');
+
+  var rec = {
+    Month:     month,
+    ClassID:   body.classId,
+    StudentID: body.studentId,
+    Amount:    amount,
+    PaidDate:  body.paidDate || today(),
+    Method:    body.method || 'Tiền mặt',
+    Note:      body.note || '',
+    By:        u.Email,
+  };
+  var t = readTable(SHEET.PAYMENTS);
+  var existing = t.rows.find(function(p) {
+    return p.Month === month && p.ClassID === body.classId && p.StudentID === body.studentId;
+  });
+  if (existing) updateRow(t, existing._row, rec);
+  else appendObjects(t, [rec]);
+  rec.Amount = String(amount);
+  return ok(rec);
+}
+
+function unmarkPaid(body, email) {
+  requireRole(email, ['ADMIN']);
+  var month = String(body.month || '').slice(0, 7);
+  var n = deleteRows(readTable(SHEET.PAYMENTS), function(p) {
+    return p.Month === month && p.ClassID === body.classId && p.StudentID === body.studentId;
+  });
+  if (!n) return err('Không tìm thấy phiếu thu');
+  return ok('removed');
+}
+
+// ────────────────────────────────────────────────────────────
+//  THÔNG TIN HỆ THỐNG (chỉ ADMIN) – link mở Google Sheet từ trang web
+// ────────────────────────────────────────────────────────────
+function getSystemInfo(body, email) {
+  requireRole(email, ['ADMIN']);
+  return ok({ spreadsheetUrl: ss().getUrl(), spreadsheetName: ss().getName() });
 }
 
 // ────────────────────────────────────────────────────────────
@@ -743,6 +923,7 @@ function getSchedule() {
 /** Ghi đè toàn bộ dữ liệu một sheet bằng mảng object; thêm cột nếu object có trường mới. */
 function replaceTable(name, objs) {
   var t = readTable(name);
+  invalidate(name);
   var headers = t.headers.slice();
   objs.forEach(function(o) {
     Object.keys(o).forEach(function(k) {
